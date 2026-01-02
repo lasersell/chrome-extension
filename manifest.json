@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Lasersell",
+  "name": "LaserSell",
   "version": "0.1.0",
   "description": "Lasersell side panel dashboard.",
   "permissions": ["sidePanel", "storage"],
   "action": {
-    "default_title": "Lasersell"
+    "default_title": "LaserSell"
   },
   "side_panel": {
     "default_path": "sidepanel.html"
