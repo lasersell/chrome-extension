@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lasersell</title>
+    <style>
+      :root {
+        --bg: #020817;
+        --fg: #f8fafc;
+        --border: #1e293b;
+        --green: #22c55e;
+        --red: #ef4444;
+        --muted: #94a3b8;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 12px;
+        height: 100vh;
+        font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-size: 14px;
+        color: var(--fg);
+        background: radial-gradient(900px 500px at -200px -200px, #0b1224 0%, var(--bg) 60%);
+      }
+
+      #app {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        height: 100%;
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .title {
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+      }
+
+      .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--red);
+        box-shadow: 0 0 0 2px rgba(2, 8, 23, 0.6);
+      }
+
+      .status-dot.connected {
+        background: var(--green);
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        border: 0;
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        padding: 10px;
+        background: rgba(15, 23, 42, 0.35);
+        animation: rise 280ms ease-out;
+      }
+
+      .card-label {
+        color: var(--muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+      }
+
+      .card-value {
+        margin-top: 6px;
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .panel {
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        background: rgba(15, 23, 42, 0.2);
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-weight: 600;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .session-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        overflow: auto;
+        flex: 1;
+        min-height: 120px;
+      }
+
+      .session-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        padding: 8px 10px;
+        align-items: center;
+        transition: background 120ms ease, border-color 120ms ease;
+      }
+
+      .session-row:hover {
+        background: var(--border);
+      }
+
+      .session-main {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .session-symbol {
+        font-weight: 600;
+        letter-spacing: 0.2px;
+      }
+
+      .session-meta {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .status-pill {
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        background: rgba(15, 23, 42, 0.4);
+      }
+
+      .session-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 6px;
+      }
+
+      .pnl {
+        font-weight: 600;
+      }
+
+      .pnl.positive {
+        color: var(--green);
+      }
+
+      .pnl.negative {
+        color: var(--red);
+      }
+
+      .sell-button {
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        padding: 4px 8px;
+        background: transparent;
+        color: var(--fg);
+        font-size: 12px;
+        cursor: pointer;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease, background 120ms ease;
+      }
+
+      .session-row:hover .sell-button {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .sell-button:hover {
+        background: var(--border);
+      }
+
+      .logs {
+        max-height: 100px;
+        overflow: auto;
+        font-family: "SF Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+      }
+
+      .log-entry {
+        display: flex;
+        gap: 6px;
+        padding: 2px 0;
+      }
+
+      .log-level {
+        color: var(--muted);
+        min-width: 42px;
+      }
+
+      .empty {
+        color: var(--muted);
+        font-size: 12px;
+        padding: 6px 0;
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (max-width: 360px) {
+        .stats {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="header">
+        <div class="title">Lasersell</div>
+        <div>
+          <span id="status-dot" class="status-dot" title="Disconnected"></span>
+          <span id="status-text" class="sr-only">Disconnected</span>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="card">
+          <div class="card-label">Wallet Balance (SOL)</div>
+          <div class="card-value" id="balance">0.0000</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Total PnL (SOL)</div>
+          <div class="card-value" id="total-pnl">0.0000</div>
+        </div>
+      </div>
+
+      <section class="panel" style="flex: 1;">
+        <div class="panel-header">
+          <span>Active Sessions</span>
+          <span class="muted" id="session-count">0</span>
+        </div>
+        <div class="session-list" id="session-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <span>Logs</span>
+          <span class="muted">Last 3</span>
+        </div>
+        <div class="logs" id="log-list"></div>
+      </section>
+    </div>
+
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

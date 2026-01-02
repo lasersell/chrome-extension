@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Lasersell",
+  "version": "0.1.0",
+  "description": "Lasersell side panel dashboard.",
+  "permissions": ["sidePanel", "storage"],
+  "action": {
+    "default_title": "Lasersell"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "host_permissions": ["http://127.0.0.1:17777/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src ws://127.0.0.1:17777;"
+  }
+}
