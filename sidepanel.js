@@ -154,7 +154,6 @@ function renderSessions() {
           </div>
           <div class="session-actions">
             <div class="pnl ${pnlClass}">${formatSol(pnlSol)} SOL</div>
-            <button class="sell-button" data-mint="${session.mint}">Sell 100%</button>
           </div>
         </div>
       `;
@@ -182,18 +181,6 @@ function renderLogs() {
     .join("");
 
   logListEl.innerHTML = rows;
-}
-
-function sendSellNow(mint) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    return;
-  }
-  ws.send(
-    JSON.stringify({
-      command: "SellNow",
-      mint,
-    })
-  );
 }
 
 function isSessionActive(status) {
@@ -233,21 +220,6 @@ function escapeHtml(value) {
     .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
-
-sessionListEl.addEventListener("click", (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) {
-    return;
-  }
-  const button = target.closest("button[data-mint]");
-  if (!button) {
-    return;
-  }
-  const mint = button.getAttribute("data-mint");
-  if (mint) {
-    sendSellNow(mint);
-  }
-});
 
 setConnected(false);
 render();
