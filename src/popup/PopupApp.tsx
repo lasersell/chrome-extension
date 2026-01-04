@@ -44,9 +44,6 @@ export function PopupApp() {
     if (status === "pairing") {
       return "Connecting...";
     }
-    if (status === "paired") {
-      return "Paired successfully.";
-    }
     if (status === "error") {
       return errorMessage || "Pairing failed. Try again.";
     }
@@ -106,93 +103,87 @@ export function PopupApp() {
       window.close();
     }
   };
-
-  const handleDone = () => {
-    window.close();
-  };
+  const isPaired = status === "paired";
 
   return (
     <div className="panel-atmosphere panel-grid flex min-h-full items-center justify-center p-4">
       <Card className="w-full max-w-sm border-border/60 bg-card/90 shadow-lg shadow-black/20 animate-fade-up">
-        <CardHeader className="space-y-2">
-          <CardTitle className="text-xl">Pair LaserSell</CardTitle>
-          <CardDescription className="text-sm text-muted-foreground">
-            Enter the pairing code shown in your LaserSell terminal.
-          </CardDescription>
-        </CardHeader>
+        {!isPaired ? (
+          <CardHeader className="space-y-2">
+            <CardTitle className="text-xl">Pair LaserSell</CardTitle>
+            <CardDescription className="text-sm text-muted-foreground">
+              Enter the pairing code shown in your LaserSell terminal.
+            </CardDescription>
+          </CardHeader>
+        ) : null}
         <CardContent>
-          <form className="space-y-4" onSubmit={onSubmit}>
-            <div className="space-y-2">
-              <label
-                className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
-                htmlFor="pairingCode"
-              >
-                Pairing Code
-              </label>
-              <input
-                id="pairingCode"
-                value={code}
-                onChange={(event) => {
-                  setCode(event.target.value.toUpperCase());
-                  if (status !== "pairing") {
-                    setStatus("idle");
-                    setErrorMessage(null);
-                  }
-                }}
-                placeholder="ABCDEFGH"
-                className={cn(
-                  "font-mono w-full rounded-md border border-input bg-background/70 px-3 py-2 text-sm text-foreground",
-                  "placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-primary"
-                )}
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="characters"
-                spellCheck={false}
-              />
-              {helperText ? (
-                <p
-                  className={cn(
-                    "text-xs",
-                    status === "paired"
-                      ? "text-emerald-400"
-                      : status === "pairing"
-                        ? "text-muted-foreground"
-                        : "text-rose-400"
-                  )}
-                >
-                  {helperText}
-                </p>
+          {isPaired ? (
+            <div className="space-y-4">
+              <p className="text-sm font-medium text-emerald-400">
+                Paired successfully.
+              </p>
+              <Button type="button" className="w-full" onClick={handleOpenSidePanel}>
+                Open Side Panel
+              </Button>
+              {openError ? (
+                <p className="text-xs text-rose-400">{openError}</p>
               ) : null}
+              <p className="text-xs text-muted-foreground">
+                Read-only. No keys stored.
+              </p>
             </div>
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={status === "pairing"}
-            >
-              Connect
-            </Button>
-            {status === "paired" ? (
+          ) : (
+            <form className="space-y-4" onSubmit={onSubmit}>
               <div className="space-y-2">
-                <Button type="button" className="w-full" onClick={handleOpenSidePanel}>
-                  Open Side Panel
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  onClick={handleDone}
+                <label
+                  className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                  htmlFor="pairingCode"
                 >
-                  Done
-                </Button>
-                {openError ? (
-                  <p className="text-xs text-rose-400">{openError}</p>
+                  Pairing Code
+                </label>
+                <input
+                  id="pairingCode"
+                  value={code}
+                  onChange={(event) => {
+                    setCode(event.target.value.toUpperCase());
+                    if (status !== "pairing") {
+                      setStatus("idle");
+                      setErrorMessage(null);
+                    }
+                  }}
+                  placeholder="ABCDEFGH"
+                  className={cn(
+                    "font-mono w-full rounded-md border border-input bg-background/70 px-3 py-2 text-sm text-foreground",
+                    "placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-primary"
+                  )}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                />
+                {helperText ? (
+                  <p
+                    className={cn(
+                      "text-xs",
+                      status === "pairing" ? "text-muted-foreground" : "text-rose-400"
+                    )}
+                  >
+                    {helperText}
+                  </p>
                 ) : null}
               </div>
-            ) : null}
-            <p className="text-xs text-muted-foreground">
-              Read-only. No keys stored.
-            </p>
-          </form>
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={status === "pairing"}
+              >
+                Connect
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Read-only. No keys stored.
+              </p>
+            </form>
+          )}
         </CardContent>
       </Card>
     </div>

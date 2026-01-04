@@ -146,6 +146,41 @@ export function SidePanelApp() {
   const isUnauthorized =
     viewerQuery.error instanceof ApiError && viewerQuery.error.status === 401;
 
+  const viewerState = viewerQuery.data;
+  const telemetry = viewerState?.state ?? null;
+  const solUsd = priceQuery.data?.sol_usd ?? null;
+  const balanceLamports = telemetry?.balance_lamports ?? null;
+  const totalPnlLamports = telemetry?.total_pnl_lamports ?? null;
+  const balanceSol = balanceLamports !== null ? lamportsToSol(balanceLamports) : null;
+  const totalPnlSol = totalPnlLamports !== null ? lamportsToSol(totalPnlLamports) : null;
+  const updatedAt = viewerState?.state_updated_at ?? viewerState?.last_seen_at ?? null;
+  const live = isLive(viewerState?.last_seen_at ?? null);
+  const networkLabel =
+    viewerState?.agent?.devnet === null || viewerState?.agent?.devnet === undefined
+      ? "Unknown"
+      : viewerState.agent.devnet
+        ? "Devnet"
+        : "Mainnet";
+
+  const historyData = useMemo(() => {
+    if (!telemetry?.pnl_history?.length) {
+      return [];
+    }
+    return telemetry.pnl_history.map(([timestamp, pnlLamports]) => {
+      const pnlSol = lamportsToSol(pnlLamports);
+      const pnlUsd = solUsd ? pnlSol * solUsd : null;
+      return {
+        t: timestamp,
+        pnlSol,
+        pnlUsd
+      };
+    });
+  }, [telemetry?.pnl_history, solUsd]);
+
+  const sessions = telemetry?.sessions ?? [];
+  const logs = telemetry?.logs ?? [];
+  const recentLogs = [...logs].slice(-20).reverse();
+
   if (!authLoaded) {
     return (
       <div className="panel-atmosphere panel-grid flex min-h-full items-center justify-center p-6">
@@ -221,41 +256,6 @@ export function SidePanelApp() {
       </div>
     );
   }
-
-  const viewerState = viewerQuery.data;
-  const telemetry = viewerState?.state ?? null;
-  const solUsd = priceQuery.data?.sol_usd ?? null;
-  const balanceLamports = telemetry?.balance_lamports ?? null;
-  const totalPnlLamports = telemetry?.total_pnl_lamports ?? null;
-  const balanceSol = balanceLamports !== null ? lamportsToSol(balanceLamports) : null;
-  const totalPnlSol = totalPnlLamports !== null ? lamportsToSol(totalPnlLamports) : null;
-  const updatedAt = viewerState?.state_updated_at ?? viewerState?.last_seen_at ?? null;
-  const live = isLive(viewerState?.last_seen_at ?? null);
-  const networkLabel =
-    viewerState?.agent?.devnet === null || viewerState?.agent?.devnet === undefined
-      ? "Unknown"
-      : viewerState.agent.devnet
-        ? "Devnet"
-        : "Mainnet";
-
-  const historyData = useMemo(() => {
-    if (!telemetry?.pnl_history?.length) {
-      return [];
-    }
-    return telemetry.pnl_history.map(([timestamp, pnlLamports]) => {
-      const pnlSol = lamportsToSol(pnlLamports);
-      const pnlUsd = solUsd ? pnlSol * solUsd : null;
-      return {
-        t: timestamp,
-        pnlSol,
-        pnlUsd
-      };
-    });
-  }, [telemetry?.pnl_history, solUsd]);
-
-  const sessions = telemetry?.sessions ?? [];
-  const logs = telemetry?.logs ?? [];
-  const recentLogs = [...logs].slice(-20).reverse();
 
   return (
     <div className="panel-atmosphere panel-grid min-h-full w-full">
