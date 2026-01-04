@@ -60,6 +60,27 @@
     height: 100%;
   }
 
+  /* ===== Extension popup sizing (scoped) ===== */
+  html.popup,
+  html.popup body {
+    /* Make the popup wide enough that "Pair LaserSell" fits on one line */
+    width: 420px;
+    min-width: 420px;
+  }
+
+  html.popup,
+  html.popup body,
+  html.popup #root {
+    /* Allow Chrome to shrink-wrap the popup height to content */
+    height: auto;
+    min-height: 0;
+  }
+
+  /* Prevent random horizontal scrollbars from shadows/grid */
+  html.popup body {
+    overflow-x: hidden;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-sans);
