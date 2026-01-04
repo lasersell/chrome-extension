@@ -143,6 +143,9 @@ export function SidePanelApp() {
     }
   }, [viewerQuery.error, expired]);
 
+  const isUnauthorized =
+    viewerQuery.error instanceof ApiError && viewerQuery.error.status === 401;
+
   if (!authLoaded) {
     return (
       <div className="panel-atmosphere panel-grid flex min-h-full items-center justify-center p-6">
@@ -181,6 +184,39 @@ export function SidePanelApp() {
               Your viewer token expired. Open the popup to pair again.
             </CardDescription>
           </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  if (viewerQuery.isLoading && !viewerQuery.data) {
+    return (
+      <div className="panel-atmosphere panel-grid flex min-h-full items-center justify-center p-6">
+        <Card className="max-w-md border-border/60 bg-card/90 text-center">
+          <CardHeader>
+            <CardTitle className="text-xl">Loading telemetry</CardTitle>
+            <CardDescription>Waiting for LaserSell data...</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  if (viewerQuery.isError && !isUnauthorized) {
+    const errorMessage =
+      viewerQuery.error instanceof Error
+        ? viewerQuery.error.message
+        : "Unable to load telemetry.";
+    return (
+      <div className="panel-atmosphere panel-grid flex min-h-full items-center justify-center p-6">
+        <Card className="max-w-md border-border/60 bg-card/90 text-center">
+          <CardHeader>
+            <CardTitle className="text-xl">Telemetry error</CardTitle>
+            <CardDescription>{errorMessage}</CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-center">
+            <Button onClick={() => viewerQuery.refetch()}>Retry</Button>
+          </CardContent>
         </Card>
       </div>
     );
@@ -251,6 +287,22 @@ export function SidePanelApp() {
             Disconnect
           </Button>
         </div>
+
+        {!telemetry ? (
+          <Card
+            className="border-border/60 bg-card/90 animate-fade-up"
+            style={{ animationDelay: "40ms" }}
+          >
+            <CardHeader>
+              <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Telemetry Pending
+              </CardTitle>
+              <CardDescription>
+                Waiting for the LaserSell app to send its first snapshot.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        ) : null}
 
         <div className="grid gap-4 md:grid-cols-2">
           <Card

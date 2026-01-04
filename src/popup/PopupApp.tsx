@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "../components/ui/button";
 import {
@@ -12,10 +12,7 @@ import { cn } from "../lib/utils";
 import { pair } from "../lib/telemetry";
 import { setAuth } from "../lib/storage";
 
-const STATUS_COPY: Record<string, string> = {
-  idle: "",
-  loading: "Connecting...",
-  success: "Paired. Opening dashboard...",
+const ERROR_COPY: Record<string, string> = {
   invalid_or_expired_pairing_code: "That pairing code is invalid or expired.",
   bad_request: "Enter a valid pairing code.",
   network_error: "Network error. Try again."
@@ -23,29 +20,54 @@ const STATUS_COPY: Record<string, string> = {
 
 export function PopupApp() {
   const [code, setCode] = useState("");
-  const [status, setStatus] = useState("idle");
+  const [status, setStatus] = useState<"idle" | "pairing" | "paired" | "error">(
+    "idle"
+  );
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
+  const [windowId, setWindowId] = useState<number | null>(null);
+  const [tabId, setTabId] = useState<number | null>(null);
+
+  useEffect(() => {
+    chrome.tabs?.query({ active: true, currentWindow: true }, (tabs) => {
+      const active = tabs?.[0];
+      if (active?.windowId !== undefined) {
+        setWindowId(active.windowId);
+      }
+      if (active?.id !== undefined) {
+        setTabId(active.id);
+      }
+    });
+  }, []);
 
   const helperText = useMemo(() => {
-    if (STATUS_COPY[status]) {
-      return STATUS_COPY[status];
+    if (status === "pairing") {
+      return "Connecting...";
     }
-    if (status && status !== "idle") {
-      return "Pairing failed. Try again.";
+    if (status === "paired") {
+      return "Paired successfully.";
+    }
+    if (status === "error") {
+      return errorMessage || "Pairing failed. Try again.";
     }
     return "";
-  }, [status]);
+  }, [status, errorMessage]);
 
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const normalized = code.trim().toUpperCase();
     if (!normalized) {
-      setStatus("bad_request");
+      setStatus("error");
+      setErrorMessage(ERROR_COPY.bad_request);
       return;
     }
-    setStatus("loading");
+    setStatus("pairing");
+    setErrorMessage(null);
+    setOpenError(null);
     const result = await pair(normalized);
     if (!result.ok) {
-      setStatus(result.error);
+      setStatus("error");
+      setErrorMessage(ERROR_COPY[result.error] || "Pairing failed. Try again.");
       return;
     }
     await setAuth({
@@ -54,11 +76,39 @@ export function PopupApp() {
       expires_at: result.expires_at
     });
     chrome.runtime?.sendMessage({ type: "SYNC_UI" });
-    chrome.runtime?.sendMessage({ type: "OPEN_PANEL" });
-    setStatus("success");
-    setTimeout(() => {
+    setStatus("paired");
+  };
+
+  const handleOpenSidePanel = () => {
+    setOpenError(null);
+    if (!chrome.sidePanel?.open) {
+      setOpenError("Side panel is unavailable. Click the extension icon.");
+      return;
+    }
+    const target =
+      windowId !== null ? { windowId } : tabId !== null ? { tabId } : null;
+    if (!target) {
+      setOpenError(
+        "Unable to find the active tab. Click the extension icon to open the side panel."
+      );
+      return;
+    }
+    const openPromise = chrome.sidePanel.open(target);
+    if (openPromise && typeof openPromise.then === "function") {
+      openPromise
+        .then(() => window.close())
+        .catch(() => {
+          setOpenError(
+            "Could not open the side panel. Click the extension icon to open it."
+          );
+        });
+    } else {
       window.close();
-    }, 150);
+    }
+  };
+
+  const handleDone = () => {
+    window.close();
   };
 
   return (
@@ -82,7 +132,13 @@ export function PopupApp() {
               <input
                 id="pairingCode"
                 value={code}
-                onChange={(event) => setCode(event.target.value.toUpperCase())}
+                onChange={(event) => {
+                  setCode(event.target.value.toUpperCase());
+                  if (status !== "pairing") {
+                    setStatus("idle");
+                    setErrorMessage(null);
+                  }
+                }}
                 placeholder="ABCDEFGH"
                 className={cn(
                   "font-mono w-full rounded-md border border-input bg-background/70 px-3 py-2 text-sm text-foreground",
@@ -97,9 +153,9 @@ export function PopupApp() {
                 <p
                   className={cn(
                     "text-xs",
-                    status === "success"
+                    status === "paired"
                       ? "text-emerald-400"
-                      : status === "loading"
+                      : status === "pairing"
                         ? "text-muted-foreground"
                         : "text-rose-400"
                   )}
@@ -111,10 +167,28 @@ export function PopupApp() {
             <Button
               type="submit"
               className="w-full"
-              disabled={status === "loading"}
+              disabled={status === "pairing"}
             >
               Connect
             </Button>
+            {status === "paired" ? (
+              <div className="space-y-2">
+                <Button type="button" className="w-full" onClick={handleOpenSidePanel}>
+                  Open Side Panel
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={handleDone}
+                >
+                  Done
+                </Button>
+                {openError ? (
+                  <p className="text-xs text-rose-400">{openError}</p>
+                ) : null}
+              </div>
+            ) : null}
             <p className="text-xs text-muted-foreground">
               Read-only. No keys stored.
             </p>
