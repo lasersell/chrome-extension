@@ -1,13 +1,18 @@
-const WS_URL = "ws://127.0.0.1:17777/ws";
+const API_BASE = "https://telemetry.lasersell.app";
+const POLL_INTERVAL_MS = 3000;
+const DISCONNECT_THRESHOLD_MS = 15000;
 const LAMPORTS_PER_SOL = 1_000_000_000;
-
-// CSP connect-src must explicitly allow ws://127.0.0.1:17777 for this socket.
-// host_permissions in manifest use http://127.0.0.1/* because match patterns do not accept ws://.
 
 const state = {
   balanceLamports: 0,
-  sessions: new Map(),
+  sessions: [],
   logs: [],
+  lastSeenAt: null
+};
+
+const auth = {
+  viewerToken: null,
+  agentId: null
 };
 
 const statusDot = document.getElementById("status-dot");
@@ -18,9 +23,13 @@ const sessionListEl = document.getElementById("session-list");
 const sessionCountEl = document.getElementById("session-count");
 const logListEl = document.getElementById("log-list");
 
-let ws = null;
-let reconnectDelay = 250;
-let reconnectTimer = null;
+const pairingForm = document.getElementById("pairing-form");
+const pairingInput = document.getElementById("pairing-code");
+const pairingButton = document.getElementById("pairing-button");
+const pairingStatus = document.getElementById("pairing-status");
+const disconnectButton = document.getElementById("disconnect-button");
+
+let pollTimer = null;
 
 function setConnected(connected) {
   statusDot.classList.toggle("connected", connected);
@@ -29,91 +38,178 @@ function setConnected(connected) {
   statusText.textContent = label;
 }
 
-function connect() {
-  if (ws) {
-    ws.close();
+function setPairingStatus(message) {
+  pairingStatus.textContent = message;
+}
+
+function updatePairingUI(isPaired) {
+  pairingForm.classList.toggle("hidden", isPaired);
+  disconnectButton.classList.toggle("hidden", !isPaired);
+  if (!isPaired) {
+    pairingInput.value = "";
   }
-  const socket = new WebSocket(WS_URL);
-  ws = socket;
+}
 
-  socket.addEventListener("open", () => {
-    reconnectDelay = 250;
-    setConnected(true);
-  });
+function resetState() {
+  state.balanceLamports = 0;
+  state.sessions = [];
+  state.logs = [];
+  state.lastSeenAt = null;
+  render();
+}
 
-  socket.addEventListener("message", (event) => {
-    handleMessage(event.data);
-  });
-
-  socket.addEventListener("close", () => {
-    setConnected(false);
-    scheduleReconnect();
-  });
-
-  socket.addEventListener("error", () => {
-    setConnected(false);
+function getStorage(keys) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(keys, (items) => resolve(items));
   });
 }
 
-function scheduleReconnect() {
-  if (reconnectTimer) {
+function setStorage(items) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set(items, () => resolve());
+  });
+}
+
+function removeStorage(keys) {
+  return new Promise((resolve) => {
+    chrome.storage.local.remove(keys, () => resolve());
+  });
+}
+
+async function loadAuth() {
+  const items = await getStorage(["viewer_token", "agent_id"]);
+  auth.viewerToken = typeof items.viewer_token === "string" ? items.viewer_token : null;
+  auth.agentId = typeof items.agent_id === "string" ? items.agent_id : null;
+  return auth.viewerToken && auth.agentId;
+}
+
+async function saveAuth(viewerToken, agentId) {
+  auth.viewerToken = viewerToken;
+  auth.agentId = agentId;
+  await setStorage({ viewer_token: viewerToken, agent_id: agentId });
+}
+
+async function clearAuth() {
+  auth.viewerToken = null;
+  auth.agentId = null;
+  await removeStorage(["viewer_token", "agent_id"]);
+}
+
+async function pair() {
+  const code = pairingInput.value.trim();
+  if (!code) {
+    setPairingStatus("Enter a pairing code.");
     return;
   }
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    connect();
-  }, reconnectDelay);
-  reconnectDelay = Math.min(reconnectDelay * 2, 5000);
-}
 
-function handleMessage(raw) {
-  let payload;
+  pairingButton.disabled = true;
+  setPairingStatus("Connecting...");
+
   try {
-    payload = JSON.parse(raw);
-  } catch (error) {
-    return;
-  }
+    const response = await fetch(`${API_BASE}/api/viewer/pair`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ pairing_code: code })
+    });
 
-  if (payload.type === "BalanceUpdate") {
-    state.balanceLamports = Number(payload.lamports) || 0;
-  }
-
-  if (payload.type === "SessionUpdate") {
-    const mint = payload.mint;
-    if (!mint) {
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload || !payload.ok) {
+      const errorCode = payload && payload.error ? payload.error : "pair_failed";
+      if (errorCode === "invalid_or_expired_pairing_code") {
+        setPairingStatus("Invalid or expired pairing code.");
+      } else {
+        setPairingStatus("Pairing failed. Try again.");
+      }
       return;
     }
-    const existing = state.sessions.get(mint) || {
-      mint,
-      symbol: "",
-      status: "UNKNOWN",
-      pnlLamports: 0,
-    };
-    existing.symbol = payload.symbol || existing.symbol;
-    existing.status = payload.status || existing.status;
-    existing.pnlLamports = Number(payload.pnl_lamports) || 0;
-    state.sessions.set(mint, existing);
+
+    await saveAuth(payload.viewer_token, payload.agent_id);
+    setPairingStatus("Paired. Fetching telemetry...");
+    updatePairingUI(true);
+    startPolling();
+  } catch (error) {
+    setPairingStatus("Network error. Try again.");
+  } finally {
+    pairingButton.disabled = false;
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  pollState();
+  pollTimer = setInterval(pollState, POLL_INTERVAL_MS);
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+async function pollState() {
+  if (!auth.viewerToken || !auth.agentId) {
+    return;
   }
 
-  if (payload.type === "LogLine") {
-    state.logs.push({
-      level: payload.level || "INFO",
-      message: payload.message || "",
-    });
-    if (state.logs.length > 3) {
-      state.logs.shift();
+  try {
+    const response = await fetch(
+      `${API_BASE}/api/viewer/state?agent_id=${encodeURIComponent(auth.agentId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${auth.viewerToken}`
+        }
+      }
+    );
+
+    if (response.status === 401) {
+      await clearAuth();
+      setPairingStatus("Pairing expired. Reconnect.");
+      updatePairingUI(false);
+      setConnected(false);
+      resetState();
+      stopPolling();
+      return;
     }
-  }
 
-  render();
+    if (!response.ok) {
+      setConnected(false);
+      return;
+    }
+
+    const payload = await response.json();
+    if (!payload || !payload.ok) {
+      setConnected(false);
+      return;
+    }
+
+    const lastSeenAt = payload.last_seen_at ? Date.parse(payload.last_seen_at) : null;
+    state.lastSeenAt = Number.isFinite(lastSeenAt) ? lastSeenAt : null;
+
+    const snapshot = payload.state || {};
+    state.balanceLamports = Number(snapshot.balance_lamports) || 0;
+    state.sessions = Array.isArray(snapshot.sessions) ? snapshot.sessions : [];
+    state.logs = Array.isArray(snapshot.logs) ? snapshot.logs : [];
+
+    render();
+
+    const connected =
+      state.lastSeenAt !== null &&
+      Date.now() - state.lastSeenAt <= DISCONNECT_THRESHOLD_MS;
+    setConnected(connected);
+  } catch (error) {
+    setConnected(false);
+  }
 }
 
 function render() {
   balanceEl.textContent = formatSol(lamportsToSol(state.balanceLamports));
 
   let totalPnlLamports = 0;
-  for (const session of state.sessions.values()) {
-    totalPnlLamports += session.pnlLamports || 0;
+  for (const session of state.sessions) {
+    totalPnlLamports += Number(session.pnl_lamports) || 0;
   }
   const totalPnlSol = lamportsToSol(totalPnlLamports);
   totalPnlEl.textContent = formatSol(totalPnlSol);
@@ -129,7 +225,7 @@ function render() {
 }
 
 function renderSessions() {
-  const sessions = Array.from(state.sessions.values()).filter((session) =>
+  const sessions = state.sessions.filter((session) =>
     isSessionActive(session.status)
   );
 
@@ -142,14 +238,15 @@ function renderSessions() {
 
   const rows = sessions
     .map((session) => {
-      const pnlSol = lamportsToSol(session.pnlLamports || 0);
-      const pnlClass = session.pnlLamports > 0 ? "positive" : session.pnlLamports < 0 ? "negative" : "";
+      const pnlLamports = Number(session.pnl_lamports) || 0;
+      const pnlSol = lamportsToSol(pnlLamports);
+      const pnlClass = pnlLamports > 0 ? "positive" : pnlLamports < 0 ? "negative" : "";
       return `
         <div class="session-row">
           <div class="session-main">
             <div class="session-symbol">${escapeHtml(displaySymbol(session))}</div>
             <div class="session-meta">
-              <span class="status-pill">${escapeHtml(session.status)}</span>
+              <span class="status-pill">${escapeHtml(session.status || "UNKNOWN")}</span>
             </div>
           </div>
           <div class="session-actions">
@@ -170,11 +267,12 @@ function renderLogs() {
   }
 
   const rows = state.logs
+    .slice(-3)
     .map((entry) => {
       return `
         <div class="log-entry">
-          <span class="log-level">${escapeHtml(entry.level)}</span>
-          <span>${escapeHtml(entry.message)}</span>
+          <span class="log-level">${escapeHtml(entry.level || "INFO")}</span>
+          <span>${escapeHtml(entry.message || "")}</span>
         </div>
       `;
     })
@@ -221,6 +319,31 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+pairingButton.addEventListener("click", pair);
+
+pairingInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    pair();
+  }
+});
+
+disconnectButton.addEventListener("click", async () => {
+  await clearAuth();
+  setPairingStatus("Disconnected.");
+  updatePairingUI(false);
+  setConnected(false);
+  stopPolling();
+  resetState();
+});
+
 setConnected(false);
 render();
-connect();
+updatePairingUI(false);
+
+loadAuth().then((hasAuth) => {
+  updatePairingUI(Boolean(hasAuth));
+  if (hasAuth) {
+    setPairingStatus("Paired.");
+    startPolling();
+  }
+});
