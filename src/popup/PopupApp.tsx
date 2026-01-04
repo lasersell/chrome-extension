@@ -108,14 +108,12 @@ export function PopupApp() {
   return (
     <div className="panel-atmosphere panel-grid flex min-h-full items-center justify-center p-4">
       <Card className="w-full max-w-sm border-border/60 bg-card/90 shadow-lg shadow-black/20 animate-fade-up">
-        {!isPaired ? (
-          <CardHeader className="space-y-2">
-            <CardTitle className="text-xl">Pair LaserSell</CardTitle>
-            <CardDescription className="text-sm text-muted-foreground">
-              Enter the pairing code shown in your LaserSell terminal.
-            </CardDescription>
-          </CardHeader>
-        ) : null}
+        <CardHeader className="space-y-2">
+          <CardTitle className="text-xl">Pair LaserSell</CardTitle>
+          <CardDescription className="text-sm text-muted-foreground">
+            Enter the pairing code shown in your LaserSell terminal.
+          </CardDescription>
+        </CardHeader>
         <CardContent>
           {isPaired ? (
             <div className="space-y-4">

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   CartesianGrid,
@@ -19,16 +19,17 @@ import {
   CardHeader,
   CardTitle
 } from "../components/ui/card";
-import { Separator } from "../components/ui/separator";
 import { cn } from "../lib/utils";
 import { clearAuth, getAuth, type AuthState } from "../lib/storage";
 import {
   ApiError,
   fetchSolUsdPrice,
-  fetchViewerState,
-  type TelemetrySession
+  fetchViewerStateStream,
+  type TelemetrySession,
+  type ViewerStateResponse
 } from "../lib/telemetry";
 import {
+  formatCompact,
   formatSol,
   formatUsd,
   lamportsToSol,
@@ -62,6 +63,11 @@ export function SidePanelApp() {
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [authLoaded, setAuthLoaded] = useState(false);
   const [expired, setExpired] = useState(false);
+  const [viewerState, setViewerState] = useState<ViewerStateResponse | null>(null);
+  const [viewerError, setViewerError] = useState<Error | ApiError | null>(null);
+  const [viewerLoading, setViewerLoading] = useState(false);
+  const [pollKey, setPollKey] = useState(0);
+  const [, setTick] = useState(0);
 
   useEffect(() => {
     let mounted = true;
@@ -100,32 +106,26 @@ export function SidePanelApp() {
     };
   }, []);
 
-  const handleDisconnect = async () => {
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setTick((value) => value + 1);
+    }, 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  const handleDisconnect = useCallback(async () => {
     await clearAuth();
     chrome.runtime?.sendMessage({ type: "SYNC_UI" });
     setAuth(null);
     setExpired(false);
-  };
+  }, []);
 
-  const handleExpired = async () => {
+  const handleExpired = useCallback(async () => {
     await clearAuth();
     chrome.runtime?.sendMessage({ type: "SYNC_UI" });
     setAuth(null);
     setExpired(true);
-  };
-
-  const viewerQuery = useQuery({
-    queryKey: ["viewer-state", auth?.agent_id],
-    queryFn: async () => {
-      if (!auth) {
-        throw new Error("missing_auth");
-      }
-      return fetchViewerState(auth.agent_id, auth.viewer_token);
-    },
-    enabled: !!auth,
-    refetchInterval: 3000,
-    retry: 1
-  });
+  }, []);
 
   const priceQuery = useQuery({
     queryKey: ["sol-usd"],
@@ -136,17 +136,75 @@ export function SidePanelApp() {
   });
 
   useEffect(() => {
-    if (viewerQuery.error instanceof ApiError && viewerQuery.error.status === 401) {
-      if (!expired) {
-        handleExpired();
-      }
+    const agentId = auth?.agent_id ?? null;
+    const viewerToken = auth?.viewer_token ?? null;
+    if (!agentId || !viewerToken) {
+      setViewerState(null);
+      setViewerError(null);
+      setViewerLoading(false);
+      return;
     }
-  }, [viewerQuery.error, expired]);
 
-  const isUnauthorized =
-    viewerQuery.error instanceof ApiError && viewerQuery.error.status === 401;
+    setViewerError(null);
 
-  const viewerState = viewerQuery.data;
+    let cancelled = false;
+    let since: string | null = null;
+    let initial = true;
+    let backoffMs = 1000;
+
+    const poll = async () => {
+      while (!cancelled) {
+        if (initial) {
+          setViewerLoading(true);
+        }
+        try {
+          const result = await fetchViewerStateStream(agentId, viewerToken, since, 8000);
+          if (cancelled) {
+            return;
+          }
+          if (result) {
+            setViewerState(result);
+            setViewerError(null);
+            since = result.state_updated_at ?? new Date().toISOString();
+          }
+          if (initial) {
+            setViewerLoading(false);
+            initial = false;
+          }
+          backoffMs = 1000;
+        } catch (err) {
+          if (cancelled) {
+            return;
+          }
+          if (err instanceof ApiError && err.status === 401) {
+            if (initial) {
+              setViewerLoading(false);
+              initial = false;
+            }
+            handleExpired();
+            return;
+          }
+          setViewerError(
+            err instanceof Error ? err : new Error("Unable to load telemetry.")
+          );
+          if (initial) {
+            setViewerLoading(false);
+            initial = false;
+          }
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+          backoffMs = Math.min(backoffMs * 2, 8000);
+        }
+      }
+    };
+
+    poll();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [auth?.agent_id, auth?.viewer_token, handleExpired, pollKey]);
+
+  const isUnauthorized = viewerError instanceof ApiError && viewerError.status === 401;
   const telemetry = viewerState?.state ?? null;
   const solUsd = priceQuery.data?.sol_usd ?? null;
   const balanceLamports = telemetry?.balance_lamports ?? null;
@@ -178,8 +236,6 @@ export function SidePanelApp() {
   }, [telemetry?.pnl_history, solUsd]);
 
   const sessions = telemetry?.sessions ?? [];
-  const logs = telemetry?.logs ?? [];
-  const recentLogs = [...logs].slice(-20).reverse();
 
   if (!authLoaded) {
     return (
@@ -224,7 +280,7 @@ export function SidePanelApp() {
     );
   }
 
-  if (viewerQuery.isLoading && !viewerQuery.data) {
+  if (viewerLoading && !viewerState) {
     return (
       <div className="panel-atmosphere panel-grid flex min-h-full items-center justify-center p-6">
         <Card className="max-w-md border-border/60 bg-card/90 text-center">
@@ -237,11 +293,9 @@ export function SidePanelApp() {
     );
   }
 
-  if (viewerQuery.isError && !isUnauthorized) {
+  if (viewerError && !isUnauthorized) {
     const errorMessage =
-      viewerQuery.error instanceof Error
-        ? viewerQuery.error.message
-        : "Unable to load telemetry.";
+      viewerError instanceof Error ? viewerError.message : "Unable to load telemetry.";
     return (
       <div className="panel-atmosphere panel-grid flex min-h-full items-center justify-center p-6">
         <Card className="max-w-md border-border/60 bg-card/90 text-center">
@@ -250,7 +304,7 @@ export function SidePanelApp() {
             <CardDescription>{errorMessage}</CardDescription>
           </CardHeader>
           <CardContent className="flex justify-center">
-            <Button onClick={() => viewerQuery.refetch()}>Retry</Button>
+            <Button onClick={() => setPollKey((value) => value + 1)}>Retry</Button>
           </CardContent>
         </Card>
       </div>
@@ -304,18 +358,18 @@ export function SidePanelApp() {
           </Card>
         ) : null}
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 grid-cols-2">
           <Card
             className="border-border/60 bg-card/90 animate-fade-up"
             style={{ animationDelay: "60ms" }}
           >
-            <CardHeader className="pb-3">
+            <CardHeader className="p-4">
               <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                 Wallet Balance
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-1">
-              <div className="text-2xl font-semibold text-foreground">
+            <CardContent className="space-y-1 p-4">
+              <div className="text-xl font-semibold text-foreground">
                 {balanceSol !== null ? `${formatSol(balanceSol)} SOL` : "--"}
               </div>
               <div className="text-sm text-muted-foreground">
@@ -329,15 +383,15 @@ export function SidePanelApp() {
             className="border-border/60 bg-card/90 animate-fade-up"
             style={{ animationDelay: "120ms" }}
           >
-            <CardHeader className="pb-3">
+            <CardHeader className="p-4">
               <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                 Total PnL
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-1">
+            <CardContent className="space-y-1 p-4">
               <div
                 className={cn(
-                  "text-2xl font-semibold",
+                  "text-xl font-semibold",
                   totalPnlSol === null
                     ? "text-muted-foreground"
                     : totalPnlSol < 0
@@ -458,8 +512,17 @@ export function SidePanelApp() {
               </div>
             ) : (
               sessions.map((session) => {
-                const pnlSol = lamportsToSol(session.pnl_lamports);
-                const pnlUsd = solUsd ? pnlSol * solUsd : null;
+                const costSol =
+                  session.cost_basis_lamports !== null &&
+                  session.cost_basis_lamports !== undefined
+                    ? lamportsToSol(session.cost_basis_lamports)
+                    : null;
+                const costLabel = costSol !== null ? `${formatSol(costSol)} SOL` : "--";
+                const tokenLabel =
+                  session.position_tokens !== null &&
+                  session.position_tokens !== undefined
+                    ? formatCompact(session.position_tokens)
+                    : "--";
                 return (
                   <div key={session.mint} className="flex items-center justify-between gap-3">
                     <div className="flex flex-col gap-1">
@@ -472,53 +535,16 @@ export function SidePanelApp() {
                       <div
                         className={cn(
                           "text-sm font-semibold",
-                          pnlSol < 0 ? "text-rose-400" : "text-emerald-400"
+                          costSol === null ? "text-muted-foreground" : "text-foreground"
                         )}
                       >
-                        {formatSol(pnlSol)} SOL
+                        {costLabel}
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {pnlUsd !== null ? formatUsd(pnlUsd) : "--"}
-                      </div>
+                      <div className="text-xs text-muted-foreground">{tokenLabel}</div>
                     </div>
                   </div>
                 );
               })
-            )}
-          </CardContent>
-        </Card>
-
-        <Card
-          className="border-border/60 bg-card/90 animate-fade-up"
-          style={{ animationDelay: "300ms" }}
-        >
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Activity
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {recentLogs.length === 0 ? (
-              <div className="py-4 text-center text-sm text-muted-foreground">
-                No recent activity.
-              </div>
-            ) : (
-              <div className="max-h-56 space-y-3 overflow-y-auto pr-1">
-                {recentLogs.map((log, index) => (
-                  <div key={`${log.level}-${index}`} className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary">{log.level}</Badge>
-                      <span className="text-xs text-muted-foreground">Log</span>
-                    </div>
-                    <p className="font-mono text-xs text-foreground">
-                      {log.message}
-                    </p>
-                    {index < recentLogs.length - 1 ? (
-                      <Separator className="bg-border/50" />
-                    ) : null}
-                  </div>
-                ))}
-              </div>
             )}
           </CardContent>
         </Card>

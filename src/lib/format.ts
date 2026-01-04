@@ -20,6 +20,36 @@ export function formatUsd(value: number): string {
   });
 }
 
+function trimTrailingZeros(value: string): string {
+  return value.replace(/\.?0+$/, "");
+}
+
+export function formatCompact(value: number): string {
+  const sign = value < 0 ? "-" : "";
+  const abs = Math.abs(value);
+  if (abs < 1_000) {
+    return `${sign}${Math.trunc(abs)}`;
+  }
+  if (abs < 1_000_000) {
+    const scaled = abs / 1_000;
+    const rounded = trimTrailingZeros(scaled.toFixed(2));
+    return `${sign}${rounded}k`;
+  }
+  if (abs < 1_000_000_000) {
+    const scaled = abs / 1_000_000;
+    const rounded = trimTrailingZeros(scaled.toFixed(2));
+    return `${sign}${rounded} mil`;
+  }
+  if (abs < 1_000_000_000_000) {
+    const scaled = abs / 1_000_000_000;
+    const rounded = trimTrailingZeros(scaled.toFixed(2));
+    return `${sign}${rounded} bil`;
+  }
+  const scaled = abs / 1_000_000_000_000;
+  const rounded = trimTrailingZeros(scaled.toFixed(2));
+  return `${sign}${rounded} tril`;
+}
+
 export function shortPubkey(value: string, prefix = 4, suffix = 4): string {
   if (!value) {
     return "--";

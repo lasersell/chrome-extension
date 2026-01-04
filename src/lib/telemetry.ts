@@ -17,11 +17,8 @@ export type TelemetrySession = {
   symbol: string;
   status: string;
   pnl_lamports: number;
-};
-
-export type TelemetryLog = {
-  level: string;
-  message: string;
+  cost_basis_lamports?: number | null;
+  position_tokens?: number | null;
 };
 
 export type TelemetryState = {
@@ -29,7 +26,6 @@ export type TelemetryState = {
   total_pnl_lamports: number;
   pnl_history: Array<[number, number]>;
   sessions: TelemetrySession[];
-  logs: TelemetryLog[];
 };
 
 export type ViewerStateResponse = {
@@ -97,6 +93,38 @@ export async function fetchViewerState(
       }
     }
   );
+  const body = (await response.json().catch(() => null)) as
+    | ViewerStateResponse
+    | { ok: false; error: string }
+    | null;
+  if (!response.ok || !body || ("ok" in body && !body.ok)) {
+    const errorMessage = body && "error" in body ? body.error : "request_failed";
+    throw new ApiError(response.status, errorMessage, body);
+  }
+  return body as ViewerStateResponse;
+}
+
+export async function fetchViewerStateStream(
+  agentId: string,
+  token: string,
+  sinceIso: string | null,
+  timeoutMs?: number
+): Promise<ViewerStateResponse | null> {
+  const params = new URLSearchParams({ agent_id: agentId });
+  if (sinceIso) {
+    params.set("since", sinceIso);
+  }
+  if (timeoutMs) {
+    params.set("timeout_ms", String(timeoutMs));
+  }
+  const response = await fetch(`${API_BASE}/api/viewer/state/stream?${params.toString()}`, {
+    headers: {
+      authorization: `Bearer ${token}`
+    }
+  });
+  if (response.status === 204) {
+    return null;
+  }
   const body = (await response.json().catch(() => null)) as
     | ViewerStateResponse
     | { ok: false; error: string }
