@@ -2,9 +2,18 @@
 
 Chrome Extension for LaserSell.
 
+## Build
+
+```bash
+npm install
+npm run build
+```
+
+Load the extension in Chrome (Developer Mode → Load unpacked) and select `dist/`.
+
 ## Pairing
 
-1. Load the extension in Chrome (Developer Mode → Load unpacked).
-2. Start LaserSell and copy the pairing code from stdout.
-3. Open the side panel, enter the code, and click **Connect**.
+1. Start LaserSell and copy the pairing code from stdout.
+2. Click the toolbar icon to open the pairing popup, enter the code, and click **Connect**.
+3. After pairing, clicking the icon opens the Side Panel dashboard.
 4. Use **Disconnect** to clear stored tokens and re-pair.
