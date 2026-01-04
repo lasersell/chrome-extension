@@ -50,10 +50,16 @@ export function PopupApp() {
     return "";
   }, [status, errorMessage]);
 
+  const normalizePairingCode = (value: string) =>
+    value
+      .toUpperCase()
+      .replace(/[^ABCDEFGHJKLMNPQRSTUVWXYZ23456789]/g, "")
+      .slice(0, 10);
+
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    const normalized = code.trim().toUpperCase();
-    if (!normalized) {
+    const normalized = normalizePairingCode(code);
+    if (!/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{10}$/.test(normalized)) {
       setStatus("error");
       setErrorMessage(ERROR_COPY.bad_request);
       return;
@@ -143,13 +149,14 @@ export function PopupApp() {
                   id="pairingCode"
                   value={code}
                   onChange={(event) => {
-                    setCode(event.target.value.toUpperCase());
+                    setCode(normalizePairingCode(event.target.value));
                     if (status !== "pairing") {
                       setStatus("idle");
                       setErrorMessage(null);
                     }
                   }}
-                  placeholder="ABCDEFGH"
+                  placeholder="ABCDEFGHJK"
+                  maxLength={10}
                   className={cn(
                     "font-mono w-full rounded-md border border-input bg-background/70 px-3 py-2 text-sm text-foreground",
                     "placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-primary"
