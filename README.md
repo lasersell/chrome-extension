@@ -5,11 +5,12 @@ Chrome Extension for LaserSell.
 ## Build
 
 ```bash
-npm install
+npm ci
 npm run build
 ```
 
 Load the extension in Chrome (Developer Mode → Load unpacked) and select `dist/`.
+For Chrome Web Store uploads, zip the `dist/` output (not the repo root).
 
 ## Pairing
 
