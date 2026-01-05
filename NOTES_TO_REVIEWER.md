@@ -5,7 +5,7 @@ LaserSell is a read-only telemetry dashboard that displays trading performance a
 How to test:
 1. Install the extension.
 2. Click the toolbar icon to open the popup.
-3. Enter pairing code: <DEMO_PAIRING_CODE>
+3. Enter pairing code: 2222222222
 4. Click Connect.
 5. Click Open Side Panel (or click the extension icon) to view the dashboard.
 
