@@ -15,6 +15,8 @@ export type PairResponse =
 export type TelemetrySession = {
   mint: string;
   symbol: string;
+  name?: string | null;
+  image_url?: string | null;
   status: string;
   pnl_lamports: number;
   cost_basis_lamports?: number | null;
@@ -25,7 +27,38 @@ export type TelemetryState = {
   balance_lamports: number | null;
   total_pnl_lamports: number;
   pnl_history: Array<[number, number]>;
+  rpc?: {
+    total: number;
+    errors: number;
+    latest_ms: number | null;
+    avg_ms: number | null;
+    p95_ms: number | null;
+  };
   sessions: TelemetrySession[];
+};
+
+export type PerformanceWindowStats = {
+  "1d": number;
+  "7d": number;
+  "30d": number;
+  all: number;
+};
+
+export type PerformanceMetrics = {
+  avg_time_to_profit_sec: PerformanceWindowStats;
+  profitable_trades: PerformanceWindowStats;
+  non_profitable_trades: PerformanceWindowStats;
+};
+
+export type RecentTrade = {
+  mint: string;
+  name?: string | null;
+  symbol?: string | null;
+  image_url?: string | null;
+  profit_lamports: number | null;
+  hold_seconds: number | null;
+  sell_signature: string;
+  sell_block_time: string | null;
 };
 
 export type ViewerStateResponse = {
@@ -37,6 +70,9 @@ export type ViewerStateResponse = {
     wallet_pubkey: string | null;
     devnet: boolean | null;
     client_version: string | null;
+    performance?: PerformanceMetrics | null;
+    performance_updated_at?: string | null;
+    recent_trades?: RecentTrade[] | null;
   } | null;
   state: TelemetryState | null;
 };
