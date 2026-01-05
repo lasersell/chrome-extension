@@ -23,6 +23,7 @@ import { cn } from "../lib/utils";
 import { clearAuth, getAuth, type AuthState } from "../lib/storage";
 import {
   ApiError,
+  disconnectViewer,
   fetchSolUsdPrice,
   fetchViewerStateStream,
   type TelemetrySession,
@@ -90,6 +91,10 @@ function formatMs(value: number | null | undefined) {
     return "--";
   }
   return `${Math.round(value)} ms`;
+}
+
+function isHttpsUrl(value: string | null | undefined) {
+  return typeof value === "string" && value.startsWith("https://");
 }
 
 function maxIsoTimestamp(
@@ -166,11 +171,23 @@ export function SidePanelApp() {
   }, []);
 
   const handleDisconnect = useCallback(async () => {
+    const viewerToken = auth?.viewer_token;
+    if (viewerToken) {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 2000);
+      try {
+        await disconnectViewer(viewerToken, controller.signal);
+      } catch {
+        // Best-effort disconnect.
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    }
     await clearAuth();
     chrome.runtime?.sendMessage({ type: "SYNC_UI" });
     setAuth(null);
     setExpired(false);
-  }, []);
+  }, [auth?.viewer_token]);
 
   const handleExpired = useCallback(async () => {
     await clearAuth();
@@ -706,6 +723,9 @@ export function SidePanelApp() {
                   </div>
                 ) : (
                   sessions.map((session) => {
+                    const sessionImageUrl = isHttpsUrl(session.image_url)
+                      ? session.image_url
+                      : null;
                     const costSol =
                       session.cost_basis_lamports !== null &&
                       session.cost_basis_lamports !== undefined
@@ -725,11 +745,13 @@ export function SidePanelApp() {
                       >
                         <div className="flex items-center gap-3">
                           <div className="h-4 w-4 shrink-0 overflow-hidden rounded-sm border border-border/60 bg-muted/40">
-                            {session.image_url ? (
+                            {sessionImageUrl ? (
                               <img
-                                src={session.image_url}
+                                src={sessionImageUrl}
                                 alt=""
                                 className="h-full w-full object-cover"
+                                loading="lazy"
+                                referrerPolicy="no-referrer"
                               />
                             ) : null}
                           </div>
@@ -784,6 +806,9 @@ export function SidePanelApp() {
                 </div>
               ) : (
                 recentTrades.map((trade) => {
+                  const tradeImageUrl = isHttpsUrl(trade.image_url)
+                    ? trade.image_url
+                    : null;
                   const label =
                     trade.symbol && trade.symbol.trim().length > 0
                       ? trade.symbol
@@ -819,11 +844,13 @@ export function SidePanelApp() {
                     >
                       <div className="flex items-center gap-3">
                         <div className="h-4 w-4 shrink-0 overflow-hidden rounded-sm border border-border/60 bg-muted/40">
-                          {trade.image_url ? (
+                          {tradeImageUrl ? (
                             <img
-                              src={trade.image_url}
+                              src={tradeImageUrl}
                               alt=""
                               className="h-full w-full object-cover"
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
                             />
                           ) : null}
                         </div>

@@ -27,6 +27,6 @@
     "128": "assets/icon128.png"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://telemetry.lasersell.app;"
+    "extension_pages": "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; connect-src https://telemetry.lasersell.app; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
   }
 }

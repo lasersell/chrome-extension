@@ -184,3 +184,20 @@ export async function fetchSolUsdPrice(): Promise<SolPriceResponse> {
   }
   return body as SolPriceResponse;
 }
+
+export async function disconnectViewer(
+  token: string,
+  signal?: AbortSignal
+): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/api/viewer/disconnect`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`
+      },
+      signal
+    });
+  } catch {
+    return;
+  }
+}
