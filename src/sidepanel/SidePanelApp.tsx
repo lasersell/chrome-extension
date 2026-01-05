@@ -92,6 +92,24 @@ function formatMs(value: number | null | undefined) {
   return `${Math.round(value)} ms`;
 }
 
+function maxIsoTimestamp(
+  first: string | null | undefined,
+  second: string | null | undefined
+) {
+  const firstMs = first ? Date.parse(first) : Number.NaN;
+  const secondMs = second ? Date.parse(second) : Number.NaN;
+  if (Number.isFinite(firstMs) && Number.isFinite(secondMs)) {
+    return firstMs >= secondMs ? first : second;
+  }
+  if (Number.isFinite(firstMs)) {
+    return first;
+  }
+  if (Number.isFinite(secondMs)) {
+    return second;
+  }
+  return null;
+}
+
 export function SidePanelApp() {
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [authLoaded, setAuthLoaded] = useState(false);
@@ -199,7 +217,9 @@ export function SidePanelApp() {
           if (result) {
             setViewerState(result);
             setViewerError(null);
-            since = result.state_updated_at ?? new Date().toISOString();
+            since =
+              maxIsoTimestamp(result.state_updated_at, result.last_seen_at) ??
+              new Date().toISOString();
           }
           if (initial) {
             setViewerLoading(false);
