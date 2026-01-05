@@ -84,6 +84,14 @@ export type SolPriceResponse = {
   fetched_at: string;
 };
 
+export type SolFiatPriceResponse = {
+  ok: true;
+  currency: string;
+  sol_price: number;
+  source: string;
+  fetched_at: string;
+};
+
 export class ApiError extends Error {
   status: number;
   body: unknown;
@@ -183,6 +191,23 @@ export async function fetchSolUsdPrice(): Promise<SolPriceResponse> {
     throw new ApiError(response.status, errorMessage, body);
   }
   return body as SolPriceResponse;
+}
+
+export async function fetchSolFiatPrice(
+  currency: string
+): Promise<SolFiatPriceResponse> {
+  const response = await fetch(
+    `${API_BASE}/api/prices/sol/${currency.toLowerCase()}`
+  );
+  const body = (await response.json().catch(() => null)) as
+    | SolFiatPriceResponse
+    | { ok: false; error: string }
+    | null;
+  if (!response.ok || !body || ("ok" in body && !body.ok)) {
+    const errorMessage = body && "error" in body ? body.error : "request_failed";
+    throw new ApiError(response.status, errorMessage, body);
+  }
+  return body as SolFiatPriceResponse;
 }
 
 export async function disconnectViewer(

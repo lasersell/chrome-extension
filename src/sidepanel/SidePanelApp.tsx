@@ -20,19 +20,25 @@ import {
   CardTitle
 } from "../components/ui/card";
 import { cn } from "../lib/utils";
-import { clearAuth, getAuth, type AuthState } from "../lib/storage";
+import {
+  clearAuth,
+  getAuth,
+  getPreferredCurrency,
+  setPreferredCurrency,
+  type AuthState
+} from "../lib/storage";
 import {
   ApiError,
   disconnectViewer,
-  fetchSolUsdPrice,
+  fetchSolFiatPrice,
   fetchViewerStateStream,
   type TelemetrySession,
   type ViewerStateResponse
 } from "../lib/telemetry";
 import {
   formatCompact,
+  formatFiat,
   formatSol,
-  formatUsd,
   lamportsToSol,
   relativeTime,
   shortPubkey
@@ -115,6 +121,18 @@ function maxIsoTimestamp(
   return null;
 }
 
+const currencyOptions = [
+  "USD",
+  "EUR",
+  "GBP",
+  "JPY",
+  "AUD",
+  "CAD",
+  "CHF",
+  "CNY"
+] as const;
+const perfWindowOptions = ["1d", "7d", "30d", "all"] as const;
+
 export function SidePanelApp() {
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [authLoaded, setAuthLoaded] = useState(false);
@@ -124,7 +142,13 @@ export function SidePanelApp() {
   const [viewerLoading, setViewerLoading] = useState(false);
   const [pollKey, setPollKey] = useState(0);
   const [, setTick] = useState(0);
-  const [activeTab, setActiveTab] = useState<"overview" | "history">("overview");
+  const [preferredCurrency, setPreferredCurrencyState] = useState("USD");
+  const [perfWindow, setPerfWindow] = useState<"1d" | "7d" | "30d" | "all">(
+    "7d"
+  );
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "sessions" | "history"
+  >("overview");
 
   useEffect(() => {
     let mounted = true;
@@ -137,6 +161,12 @@ export function SidePanelApp() {
       if (nextAuth) {
         setExpired(false);
       }
+    });
+    getPreferredCurrency().then((currency) => {
+      if (!mounted) {
+        return;
+      }
+      setPreferredCurrencyState(currency);
     });
 
     const handleChange = (
@@ -152,6 +182,11 @@ export function SidePanelApp() {
           if (nextAuth) {
             setExpired(false);
           }
+        });
+      }
+      if ("preferred_currency" in changes) {
+        getPreferredCurrency().then((currency) => {
+          setPreferredCurrencyState(currency);
         });
       }
     };
@@ -197,8 +232,8 @@ export function SidePanelApp() {
   }, []);
 
   const priceQuery = useQuery({
-    queryKey: ["sol-usd"],
-    queryFn: fetchSolUsdPrice,
+    queryKey: ["sol-fiat", preferredCurrency],
+    queryFn: () => fetchSolFiatPrice(preferredCurrency),
     enabled: !!auth,
     refetchInterval: 60_000,
     retry: 1
@@ -277,7 +312,7 @@ export function SidePanelApp() {
 
   const isUnauthorized = viewerError instanceof ApiError && viewerError.status === 401;
   const telemetry = viewerState?.state ?? null;
-  const solUsd = priceQuery.data?.sol_usd ?? null;
+  const solFiatRate = priceQuery.data?.sol_price ?? null;
   const balanceLamports = telemetry?.balance_lamports ?? null;
   const totalPnlLamports = telemetry?.total_pnl_lamports ?? null;
   const balanceSol = balanceLamports !== null ? lamportsToSol(balanceLamports) : null;
@@ -295,28 +330,72 @@ export function SidePanelApp() {
     if (!telemetry?.pnl_history?.length) {
       return [];
     }
-    return telemetry.pnl_history.map(([timestamp, pnlLamports]) => {
-      const pnlSol = lamportsToSol(pnlLamports);
-      const pnlUsd = solUsd ? pnlSol * solUsd : null;
-      return {
-        t: timestamp,
-        pnlSol,
-        pnlUsd
-      };
-    });
-  }, [telemetry?.pnl_history, solUsd]);
+    const now = Date.now();
+    const windowMs =
+      perfWindow === "1d"
+        ? 24 * 60 * 60 * 1000
+        : perfWindow === "7d"
+          ? 7 * 24 * 60 * 60 * 1000
+          : perfWindow === "30d"
+            ? 30 * 24 * 60 * 60 * 1000
+            : null;
+    const cutoff = windowMs ? now - windowMs : null;
+    return telemetry.pnl_history
+      .filter(([timestamp]) => {
+        if (!cutoff) {
+          return true;
+        }
+        const ts = typeof timestamp === "number" ? timestamp : Number(timestamp);
+        return Number.isFinite(ts) && ts >= cutoff;
+      })
+      .map(([timestamp, pnlLamports]) => {
+        const pnlSol = lamportsToSol(pnlLamports);
+        const pnlFiat = solFiatRate ? pnlSol * solFiatRate : null;
+        return {
+          t: timestamp,
+          pnlSol,
+          pnlFiat
+        };
+      });
+  }, [perfWindow, telemetry?.pnl_history, solFiatRate]);
 
   const sessions = telemetry?.sessions ?? [];
   const performance = viewerState?.agent?.performance ?? null;
   const rpcMetrics = telemetry?.rpc ?? null;
+  const rpcLatencyMs =
+    rpcMetrics?.latest_ms ?? rpcMetrics?.avg_ms ?? rpcMetrics?.p95_ms ?? null;
   const recentTrades = Array.isArray(viewerState?.agent?.recent_trades)
     ? viewerState?.agent?.recent_trades
     : [];
-  const perfWindows = ["1d", "7d", "30d", "all"] as const;
   const formatPerfDuration = (value: number | null | undefined) =>
     value === null || value === undefined ? "--" : formatDurationSeconds(value);
   const formatPerfCount = (value: number | null | undefined) =>
     value === null || value === undefined ? "--" : formatCompact(value);
+  const perfAvg = performance?.avg_time_to_profit_sec?.[perfWindow];
+  const perfProfitable = performance?.profitable_trades?.[perfWindow];
+  const perfNonProfitable = performance?.non_profitable_trades?.[perfWindow];
+  const perfWinRate = (() => {
+    if (
+      perfProfitable === null ||
+      perfProfitable === undefined ||
+      perfNonProfitable === null ||
+      perfNonProfitable === undefined
+    ) {
+      return "--";
+    }
+    const total = perfProfitable + perfNonProfitable;
+    if (!Number.isFinite(total) || total <= 0) {
+      return "--";
+    }
+    return `${((perfProfitable / total) * 100).toFixed(1)}%`;
+  })();
+  const perfStats = [
+    { label: "Avg time to profit", value: formatPerfDuration(perfAvg) },
+    { label: "Profitable trades", value: formatPerfCount(perfProfitable) },
+    { label: "Non-profitable trades", value: formatPerfCount(perfNonProfitable) },
+    { label: "Win rate", value: perfWinRate }
+  ];
+  const rpcLatencyLabel = `RPC ${formatMs(rpcLatencyMs)}`;
 
   if (!authLoaded) {
     return (
@@ -412,11 +491,30 @@ export function SidePanelApp() {
               Updated {relativeTime(updatedAt)} ago
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-foreground">
-              {shortPubkey(viewerState?.agent?.wallet_pubkey ?? "")}
-            </span>
-            <Badge variant="secondary">{networkLabel}</Badge>
+          <div className="flex flex-col items-start gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium text-foreground">
+                {shortPubkey(viewerState?.agent?.wallet_pubkey ?? "")}
+              </span>
+              <Badge variant="secondary">{networkLabel}</Badge>
+              <select
+                value={preferredCurrency}
+                onChange={(event) => {
+                  const nextCurrency = event.target.value;
+                  setPreferredCurrencyState(nextCurrency);
+                  void setPreferredCurrency(nextCurrency);
+                }}
+                className="h-7 rounded-md border border-border/60 bg-muted/20 px-2 text-xs text-foreground"
+                aria-label="Preferred currency"
+              >
+                {currencyOptions.map((currency) => (
+                  <option key={currency} value={currency}>
+                    {currency}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <span className="text-sm text-sky-300">{rpcLatencyLabel}</span>
           </div>
           <Button variant="outline" size="sm" onClick={handleDisconnect}>
             Disconnect
@@ -433,6 +531,13 @@ export function SidePanelApp() {
             onClick={() => setActiveTab("overview")}
           >
             Overview
+          </Button>
+          <Button
+            size="sm"
+            variant={activeTab === "sessions" ? "secondary" : "outline"}
+            onClick={() => setActiveTab("sessions")}
+          >
+            Sessions
           </Button>
           <Button
             size="sm"
@@ -476,8 +581,8 @@ export function SidePanelApp() {
                     {balanceSol !== null ? `${formatSol(balanceSol)} SOL` : "--"}
                   </div>
                   <div className="text-sm text-muted-foreground">
-                    {balanceSol !== null && solUsd
-                      ? formatUsd(balanceSol * solUsd)
+                    {balanceSol !== null && solFiatRate
+                      ? formatFiat(balanceSol * solFiatRate, preferredCurrency)
                       : "--"}
                   </div>
                 </CardContent>
@@ -505,8 +610,8 @@ export function SidePanelApp() {
                     {totalPnlSol !== null ? `${formatSol(totalPnlSol)} SOL` : "--"}
                   </div>
                   <div className="text-sm text-muted-foreground">
-                    {totalPnlSol !== null && solUsd
-                      ? formatUsd(totalPnlSol * solUsd)
+                    {totalPnlSol !== null && solFiatRate
+                      ? formatFiat(totalPnlSol * solFiatRate, preferredCurrency)
                       : "--"}
                   </div>
                 </CardContent>
@@ -517,276 +622,229 @@ export function SidePanelApp() {
               className="border-border/60 bg-card/90 animate-fade-up"
               style={{ animationDelay: "160ms" }}
             >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  Performance
-                </CardTitle>
+              <CardHeader className="pb-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    Performance
+                  </CardTitle>
+                  <div className="flex items-center rounded-md border border-border/60 bg-muted/20 p-1">
+                    {perfWindowOptions.map((window) => (
+                      <Button
+                        key={window}
+                        size="sm"
+                        variant={perfWindow === window ? "secondary" : "ghost"}
+                        className={cn(
+                          "h-7 px-2 text-xs",
+                          perfWindow === window ? "" : "text-muted-foreground"
+                        )}
+                        onClick={() => setPerfWindow(window)}
+                      >
+                        {window === "all" ? "All" : window.toUpperCase()}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-4 gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
-                  {perfWindows.map((window) => (
-                    <span key={window}>{window.toUpperCase()}</span>
+                <div className="grid grid-cols-2 gap-3">
+                  {perfStats.map((stat) => (
+                    <div
+                      key={stat.label}
+                      className="rounded-lg border border-border/60 bg-background/40 p-3"
+                    >
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {stat.label}
+                      </div>
+                      <div className="text-lg font-semibold text-foreground">
+                        {stat.value}
+                      </div>
+                    </div>
                   ))}
                 </div>
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Avg time to profit
+                <div className="rounded-lg border border-border/60 bg-background/40 p-3">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    PnL History
                   </div>
-                  <div className="grid grid-cols-4 gap-2 text-sm font-semibold text-foreground">
-                    {perfWindows.map((window) => (
-                      <div key={`avg-${window}`}>
-                        {formatPerfDuration(
-                          performance?.avg_time_to_profit_sec?.[window]
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Profitable trades
-                  </div>
-                  <div className="grid grid-cols-4 gap-2 text-sm font-semibold text-foreground">
-                    {perfWindows.map((window) => (
-                      <div key={`profit-${window}`}>
-                        {formatPerfCount(performance?.profitable_trades?.[window])}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Non-profitable trades
-                  </div>
-                  <div className="grid grid-cols-4 gap-2 text-sm font-semibold text-foreground">
-                    {perfWindows.map((window) => (
-                      <div key={`nonprofit-${window}`}>
-                        {formatPerfCount(
-                          performance?.non_profitable_trades?.[window]
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card
-              className="border-border/60 bg-card/90 animate-fade-up"
-              style={{ animationDelay: "200ms" }}
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  RPC Latency
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Latest
+                  {historyData.length === 0 ? (
+                    <div className="py-8 text-center text-sm text-muted-foreground">
+                      No history yet.
                     </div>
-                    <div className="text-sm font-semibold text-foreground">
-                      {formatMs(rpcMetrics?.latest_ms)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Avg
-                    </div>
-                    <div className="text-sm font-semibold text-foreground">
-                      {formatMs(rpcMetrics?.avg_ms)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      P95
-                    </div>
-                    <div className="text-sm font-semibold text-foreground">
-                      {formatMs(rpcMetrics?.p95_ms)}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Errors</span>
-                  <span>
-                    {rpcMetrics
-                      ? `${rpcMetrics.errors}/${rpcMetrics.total}`
-                      : "--"}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card
-              className="border-border/60 bg-card/90 animate-fade-up"
-              style={{ animationDelay: "240ms" }}
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  PnL History
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {historyData.length === 0 ? (
-                  <div className="py-8 text-center text-sm text-muted-foreground">
-                    No history yet.
-                  </div>
-                ) : (
-                  <div className="h-48 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart
-                        data={historyData}
-                        margin={{ top: 10, left: 0, right: 16, bottom: 0 }}
-                      >
-                        <CartesianGrid stroke="rgba(148, 163, 184, 0.2)" strokeDasharray="4 4" />
-                        <XAxis
-                          dataKey="t"
-                          tickFormatter={(value) =>
-                            new Date(value as number).toLocaleTimeString("en-US", {
-                              hour: "2-digit",
-                              minute: "2-digit"
-                            })
-                          }
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: "rgba(148, 163, 184, 0.8)", fontSize: 11 }}
-                        />
-                        <YAxis
-                          dataKey={solUsd ? "pnlUsd" : "pnlSol"}
-                          tickFormatter={(value) =>
-                            solUsd
-                              ? `${Number(value).toFixed(2)}`
-                              : `${Number(value).toFixed(4)}`
-                          }
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: "rgba(148, 163, 184, 0.8)", fontSize: 11 }}
-                          width={44}
-                        />
-                        <Tooltip
-                          content={({ active, payload }) => {
-                            if (!active || !payload || payload.length === 0) {
-                              return null;
+                  ) : (
+                    <div className="h-48 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart
+                          data={historyData}
+                          margin={{ top: 10, left: 0, right: 16, bottom: 0 }}
+                        >
+                          <CartesianGrid
+                            stroke="rgba(148, 163, 184, 0.2)"
+                            strokeDasharray="4 4"
+                          />
+                          <XAxis
+                            dataKey="t"
+                            tickFormatter={(value) => {
+                              const date = new Date(value as number);
+                              return perfWindow === "1d"
+                                ? date.toLocaleTimeString(undefined, {
+                                    hour: "2-digit",
+                                    minute: "2-digit"
+                                  })
+                                : date.toLocaleDateString(undefined, {
+                                    month: "short",
+                                    day: "numeric"
+                                  });
+                            }}
+                            axisLine={false}
+                            tickLine={false}
+                            tick={{ fill: "rgba(148, 163, 184, 0.8)", fontSize: 11 }}
+                          />
+                          <YAxis
+                            dataKey={solFiatRate ? "pnlFiat" : "pnlSol"}
+                            tickFormatter={(value) =>
+                              solFiatRate
+                                ? formatFiat(Number(value), preferredCurrency)
+                                : `${formatSol(Number(value), 4)} SOL`
                             }
-                            const point = payload[0]?.payload as {
-                              t: number;
-                              pnlSol: number;
-                              pnlUsd: number | null;
-                            };
-                            const label = new Date(point.t).toLocaleTimeString("en-US", {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                              second: "2-digit"
-                            });
-                            const value = solUsd && point.pnlUsd !== null
-                              ? formatUsd(point.pnlUsd)
-                              : `${formatSol(point.pnlSol, 4)} SOL`;
-                            return (
-                              <div className="rounded-md border border-border/60 bg-card px-3 py-2 text-xs shadow-lg">
-                                <div className="text-muted-foreground">{label}</div>
-                                <div className="text-foreground">{value}</div>
-                              </div>
-                            );
-                          }}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey={solUsd ? "pnlUsd" : "pnlSol"}
-                          stroke="hsl(var(--primary))"
-                          strokeWidth={2}
-                          dot={false}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card
-              className="border-border/60 bg-card/90 animate-fade-up"
-              style={{ animationDelay: "280ms" }}
-            >
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                    Active Sessions
-                  </CardTitle>
-                  <Badge variant="secondary">{sessions.length}</Badge>
+                            axisLine={false}
+                            tickLine={false}
+                            tick={{ fill: "rgba(148, 163, 184, 0.8)", fontSize: 11 }}
+                            width={64}
+                          />
+                          <Tooltip
+                            content={({ active, payload }) => {
+                              if (!active || !payload || payload.length === 0) {
+                                return null;
+                              }
+                              const point = payload[0]?.payload as {
+                                t: number;
+                                pnlSol: number;
+                                pnlFiat: number | null;
+                              };
+                              const label =
+                                perfWindow === "1d"
+                                  ? new Date(point.t).toLocaleTimeString(undefined, {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                      second: "2-digit"
+                                    })
+                                  : new Date(point.t).toLocaleDateString(undefined, {
+                                      month: "short",
+                                      day: "numeric"
+                                    });
+                              const valueLabel =
+                                solFiatRate && point.pnlFiat !== null
+                                  ? formatFiat(point.pnlFiat, preferredCurrency)
+                                  : `${formatSol(point.pnlSol, 4)} SOL`;
+                              return (
+                                <div className="rounded-md border border-border/60 bg-card px-3 py-2 text-xs shadow-lg">
+                                  <div className="text-muted-foreground">{label}</div>
+                                  <div className="text-foreground">{valueLabel}</div>
+                                </div>
+                              );
+                            }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey={solFiatRate ? "pnlFiat" : "pnlSol"}
+                            stroke="hsl(var(--primary))"
+                            strokeWidth={2}
+                            dot={false}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {sessions.length === 0 ? (
-                  <div className="py-4 text-center text-sm text-muted-foreground">
-                    No active sessions.
-                  </div>
-                ) : (
-                  sessions.map((session) => {
-                    const sessionImageUrl = isHttpsUrl(session.image_url)
-                      ? session.image_url
-                      : null;
-                    const costSol =
-                      session.cost_basis_lamports !== null &&
-                      session.cost_basis_lamports !== undefined
-                        ? lamportsToSol(session.cost_basis_lamports)
-                        : null;
-                    const costLabel =
-                      costSol !== null ? `${formatSol(costSol)} SOL` : "--";
-                    const tokenLabel =
-                      session.position_tokens !== null &&
-                      session.position_tokens !== undefined
-                        ? formatCompact(session.position_tokens)
-                        : "--";
-                    return (
-                      <div
-                        key={session.mint}
-                        className="flex items-center justify-between gap-3"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="h-4 w-4 shrink-0 overflow-hidden rounded-sm border border-border/60 bg-muted/40">
-                            {sessionImageUrl ? (
-                              <img
-                                src={sessionImageUrl}
-                                alt=""
-                                className="h-full w-full object-cover"
-                                loading="lazy"
-                                referrerPolicy="no-referrer"
-                              />
-                            ) : null}
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <div className="text-sm font-semibold text-foreground">
-                              {sessionLabel(session)}
-                            </div>
-                            <Badge variant="secondary">
-                              {statusLabel(session.status)}
-                            </Badge>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div
-                            className={cn(
-                              "text-sm font-semibold",
-                              costSol === null
-                                ? "text-muted-foreground"
-                                : "text-foreground"
-                            )}
-                          >
-                            {costLabel}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {tokenLabel}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
               </CardContent>
             </Card>
           </>
-        ) : (
+        ) : null}
+
+        {activeTab === "sessions" ? (
+          <Card
+            className="border-border/60 bg-card/90 animate-fade-up"
+            style={{ animationDelay: "60ms" }}
+          >
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  Active Sessions
+                </CardTitle>
+                <Badge variant="secondary">{sessions.length}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {sessions.length === 0 ? (
+                <div className="py-4 text-center text-sm text-muted-foreground">
+                  No active sessions.
+                </div>
+              ) : (
+                sessions.map((session) => {
+                  const sessionImageUrl = isHttpsUrl(session.image_url)
+                    ? session.image_url
+                    : null;
+                  const costSol =
+                    session.cost_basis_lamports !== null &&
+                    session.cost_basis_lamports !== undefined
+                      ? lamportsToSol(session.cost_basis_lamports)
+                      : null;
+                  const costLabel =
+                    costSol !== null ? `${formatSol(costSol)} SOL` : "--";
+                  const tokenLabel =
+                    session.position_tokens !== null &&
+                    session.position_tokens !== undefined
+                      ? formatCompact(session.position_tokens)
+                      : "--";
+                  return (
+                    <div
+                      key={session.mint}
+                      className="flex items-center justify-between gap-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="h-4 w-4 shrink-0 overflow-hidden rounded-sm border border-border/60 bg-muted/40">
+                          {sessionImageUrl ? (
+                            <img
+                              src={sessionImageUrl}
+                              alt=""
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : null}
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <div className="text-sm font-semibold text-foreground">
+                            {sessionLabel(session)}
+                          </div>
+                          <Badge variant="secondary">
+                            {statusLabel(session.status)}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div
+                          className={cn(
+                            "text-sm font-semibold",
+                            costSol === null
+                              ? "text-muted-foreground"
+                              : "text-foreground"
+                          )}
+                        >
+                          {costLabel}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {tokenLabel}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {activeTab === "history" ? (
           <Card
             className="border-border/60 bg-card/90 animate-fade-up"
             style={{ animationDelay: "60ms" }}
@@ -820,8 +878,10 @@ export function SidePanelApp() {
                     trade.profit_lamports !== undefined
                       ? lamportsToSol(trade.profit_lamports)
                       : null;
-                  const profitUsd =
-                    profitSol !== null && solUsd ? profitSol * solUsd : null;
+                  const profitFiat =
+                    profitSol !== null && solFiatRate
+                      ? profitSol * solFiatRate
+                      : null;
                   const profitClass =
                     profitSol === null
                       ? "text-muted-foreground"
@@ -880,7 +940,9 @@ export function SidePanelApp() {
                           {profitSol !== null ? `${formatSol(profitSol)} SOL` : "--"}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {profitUsd !== null ? formatUsd(profitUsd) : "--"}
+                          {profitFiat !== null
+                            ? formatFiat(profitFiat, preferredCurrency)
+                            : "--"}
                         </div>
                       </div>
                     </div>
@@ -889,7 +951,7 @@ export function SidePanelApp() {
               )}
             </CardContent>
           </Card>
-        )}
+        ) : null}
 
         <div className="pb-4 text-center text-xs text-muted-foreground">
           Read-only dashboard.

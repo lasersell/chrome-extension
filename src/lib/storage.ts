@@ -1,4 +1,16 @@
 const AUTH_KEYS = ["viewer_token", "agent_id", "expires_at"] as const;
+const PREFERRED_CURRENCY_KEY = "preferred_currency";
+const DEFAULT_CURRENCY = "USD";
+const SUPPORTED_CURRENCIES = new Set([
+  "USD",
+  "EUR",
+  "GBP",
+  "JPY",
+  "AUD",
+  "CAD",
+  "CHF",
+  "CNY"
+]);
 
 export type AuthState = {
   viewer_token: string;
@@ -37,5 +49,30 @@ export async function setAuth(auth: AuthState): Promise<void> {
 export async function clearAuth(): Promise<void> {
   return new Promise((resolve) => {
     chrome.storage.local.remove(AUTH_KEYS, () => resolve());
+  });
+}
+
+export async function getPreferredCurrency(): Promise<string> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([PREFERRED_CURRENCY_KEY], (result) => {
+      const value = result[PREFERRED_CURRENCY_KEY] as string | undefined;
+      if (typeof value === "string") {
+        const normalized = value.toUpperCase();
+        if (SUPPORTED_CURRENCIES.has(normalized)) {
+          resolve(normalized);
+          return;
+        }
+      }
+      resolve(DEFAULT_CURRENCY);
+    });
+  });
+}
+
+export async function setPreferredCurrency(currency: string): Promise<void> {
+  const normalized = currency.toUpperCase();
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [PREFERRED_CURRENCY_KEY]: normalized }, () =>
+      resolve()
+    );
   });
 }

@@ -12,11 +12,13 @@ export function formatSol(value: number, decimals = 4): string {
 }
 
 export function formatUsd(value: number): string {
-  return value.toLocaleString("en-US", {
+  return formatFiat(value, "USD");
+}
+
+export function formatFiat(value: number, currency: string): string {
+  return value.toLocaleString(undefined, {
     style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
+    currency
   });
 }
 
