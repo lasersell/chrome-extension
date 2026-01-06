@@ -101,10 +101,8 @@ function formatMs(value: number | null | undefined) {
 
 const IMAGES_BASE = "https://images.lasersell.app";
 
-function coinImageUrl(mint: string, variant = "64x64") {
-  return `${IMAGES_BASE}/coin-image/${encodeURIComponent(
-    mint
-  )}?variant=${encodeURIComponent(variant)}`;
+function coinImageUrl(mint: string) {
+  return `${IMAGES_BASE}/coin-image/${encodeURIComponent(mint)}`;
 }
 
 function maxIsoTimestamp(
