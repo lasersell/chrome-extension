@@ -17,8 +17,7 @@
   },
   "permissions": ["sidePanel", "storage"],
   "host_permissions": [
-    "https://telemetry.lasersell.app/*",
-    "https://images.lasersell.app/*"
+    "https://telemetry.lasersell.app/*"
   ],
   "side_panel": {
     "default_path": "sidepanel.html"
