@@ -11,7 +11,7 @@ import {
 } from "recharts";
 
 import { Badge } from "../components/ui/badge";
-import { Button } from "../components/ui/button";
+import { Button, buttonVariants } from "../components/ui/button";
 import {
   Card,
   CardContent,
@@ -131,7 +131,7 @@ const currencyOptions = [
   "CHF",
   "CNY"
 ] as const;
-const perfWindowOptions = ["1d", "7d", "30d", "all"] as const;
+const perfWindowOptions = ["1h", "1d", "7d", "30d", "all"] as const;
 
 export function SidePanelApp() {
   const [auth, setAuth] = useState<AuthState | null>(null);
@@ -143,9 +143,9 @@ export function SidePanelApp() {
   const [pollKey, setPollKey] = useState(0);
   const [, setTick] = useState(0);
   const [preferredCurrency, setPreferredCurrencyState] = useState("USD");
-  const [perfWindow, setPerfWindow] = useState<"1d" | "7d" | "30d" | "all">(
-    "7d"
-  );
+  const [perfWindow, setPerfWindow] = useState<
+    "1h" | "1d" | "7d" | "30d" | "all"
+  >("7d");
   const [activeTab, setActiveTab] = useState<
     "overview" | "sessions" | "history"
   >("overview");
@@ -315,9 +315,11 @@ export function SidePanelApp() {
   const solFiatRate = priceQuery.data?.sol_price ?? null;
   const balanceLamports = telemetry?.balance_lamports ?? null;
   const totalPnlLamports = telemetry?.total_pnl_lamports ?? null;
+  const netPnlLamports = viewerState?.agent?.net_pnl_lamports ?? totalPnlLamports;
   const balanceSol = balanceLamports !== null ? lamportsToSol(balanceLamports) : null;
-  const totalPnlSol = totalPnlLamports !== null ? lamportsToSol(totalPnlLamports) : null;
+  const totalPnlSol = netPnlLamports !== null ? lamportsToSol(netPnlLamports) : null;
   const updatedAt = viewerState?.state_updated_at ?? viewerState?.last_seen_at ?? null;
+  const updatedLabel = `Updated ${relativeTime(updatedAt)} ago`;
   const live = isLive(viewerState?.last_seen_at ?? null);
   const networkLabel =
     viewerState?.agent?.devnet === null || viewerState?.agent?.devnet === undefined
@@ -332,13 +334,15 @@ export function SidePanelApp() {
     }
     const now = Date.now();
     const windowMs =
-      perfWindow === "1d"
-        ? 24 * 60 * 60 * 1000
-        : perfWindow === "7d"
-          ? 7 * 24 * 60 * 60 * 1000
-          : perfWindow === "30d"
-            ? 30 * 24 * 60 * 60 * 1000
-            : null;
+      perfWindow === "1h"
+        ? 60 * 60 * 1000
+        : perfWindow === "1d"
+          ? 24 * 60 * 60 * 1000
+          : perfWindow === "7d"
+            ? 7 * 24 * 60 * 60 * 1000
+            : perfWindow === "30d"
+              ? 30 * 24 * 60 * 60 * 1000
+              : null;
     const cutoff = windowMs ? now - windowMs : null;
     return telemetry.pnl_history
       .filter(([timestamp]) => {
@@ -390,9 +394,9 @@ export function SidePanelApp() {
     return `${((perfProfitable / total) * 100).toFixed(1)}%`;
   })();
   const perfStats = [
-    { label: "Avg time to profit", value: formatPerfDuration(perfAvg) },
-    { label: "Profitable trades", value: formatPerfCount(perfProfitable) },
-    { label: "Non-profitable trades", value: formatPerfCount(perfNonProfitable) },
+    { label: "Avg time", value: formatPerfDuration(perfAvg) },
+    { label: "Winning trades", value: formatPerfCount(perfProfitable) },
+    { label: "Losing trades", value: formatPerfCount(perfNonProfitable) },
     { label: "Win rate", value: perfWinRate }
   ];
   const rpcLatencyLabel = `RPC ${formatMs(rpcLatencyMs)}`;
@@ -474,47 +478,29 @@ export function SidePanelApp() {
   return (
     <div className="panel-atmosphere panel-grid min-h-full w-full">
       <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-5 px-6 pb-8 pt-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 animate-fade-up">
+        <div className="flex items-start justify-between gap-3 animate-fade-up">
           <div className="flex flex-col gap-1">
-            <Badge
-              variant="outline"
-              className={cn(
-                "w-fit border-transparent",
-                live
-                  ? "bg-emerald-500/20 text-emerald-200"
-                  : "bg-rose-500/20 text-rose-200"
-              )}
-            >
-              {live ? "Live" : "Offline"}
-            </Badge>
-            <span className="text-xs text-muted-foreground">
-              Updated {relativeTime(updatedAt)} ago
-            </span>
-          </div>
-          <div className="flex flex-col items-start gap-1">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-foreground">
                 {shortPubkey(viewerState?.agent?.wallet_pubkey ?? "")}
               </span>
-              <Badge variant="secondary">{networkLabel}</Badge>
-              <select
-                value={preferredCurrency}
-                onChange={(event) => {
-                  const nextCurrency = event.target.value;
-                  setPreferredCurrencyState(nextCurrency);
-                  void setPreferredCurrency(nextCurrency);
-                }}
-                className="h-7 rounded-md border border-border/60 bg-muted/20 px-2 text-xs text-foreground"
-                aria-label="Preferred currency"
+              <Badge
+                variant="outline"
+                title={updatedLabel}
+                className={cn(
+                  "w-fit border-transparent",
+                  live
+                    ? "bg-emerald-500/20 text-emerald-200"
+                    : "bg-rose-500/20 text-rose-200"
+                )}
               >
-                {currencyOptions.map((currency) => (
-                  <option key={currency} value={currency}>
-                    {currency}
-                  </option>
-                ))}
-              </select>
+                {live ? "Online" : "Offline"}
+              </Badge>
             </div>
-            <span className="text-sm text-sky-300">{rpcLatencyLabel}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-sky-300">{rpcLatencyLabel}</span>
+              <Badge variant="secondary">{networkLabel}</Badge>
+            </div>
           </div>
           <Button variant="outline" size="sm" onClick={handleDisconnect}>
             Disconnect
@@ -546,6 +532,25 @@ export function SidePanelApp() {
           >
             History
           </Button>
+          <select
+            value={preferredCurrency}
+            onChange={(event) => {
+              const nextCurrency = event.target.value;
+              setPreferredCurrencyState(nextCurrency);
+              void setPreferredCurrency(nextCurrency);
+            }}
+            className={cn(
+              buttonVariants({ variant: "outline", size: "sm" }),
+              "appearance-none pr-8"
+            )}
+            aria-label="Preferred currency"
+          >
+            {currencyOptions.map((currency) => (
+              <option key={currency} value={currency}>
+                {currency}
+              </option>
+            ))}
+          </select>
         </div>
 
         {!telemetry ? (
@@ -573,7 +578,7 @@ export function SidePanelApp() {
               >
                 <CardHeader className="p-4">
                   <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                    Wallet Balance
+                    Balance
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-1 p-4">
@@ -593,7 +598,7 @@ export function SidePanelApp() {
               >
                 <CardHeader className="p-4">
                   <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                    Total PnL
+                    Net PnL
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-1 p-4">
@@ -652,7 +657,7 @@ export function SidePanelApp() {
                       key={stat.label}
                       className="rounded-lg border border-border/60 bg-background/40 p-3"
                     >
-                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">
                         {stat.label}
                       </div>
                       <div className="text-lg font-semibold text-foreground">
@@ -684,7 +689,7 @@ export function SidePanelApp() {
                             dataKey="t"
                             tickFormatter={(value) => {
                               const date = new Date(value as number);
-                              return perfWindow === "1d"
+                              return perfWindow === "1h" || perfWindow === "1d"
                                 ? date.toLocaleTimeString(undefined, {
                                     hour: "2-digit",
                                     minute: "2-digit"
@@ -721,7 +726,7 @@ export function SidePanelApp() {
                                 pnlFiat: number | null;
                               };
                               const label =
-                                perfWindow === "1d"
+                                perfWindow === "1h" || perfWindow === "1d"
                                   ? new Date(point.t).toLocaleTimeString(undefined, {
                                       hour: "2-digit",
                                       minute: "2-digit",

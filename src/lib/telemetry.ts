@@ -38,6 +38,7 @@ export type TelemetryState = {
 };
 
 export type PerformanceWindowStats = {
+  "1h": number;
   "1d": number;
   "7d": number;
   "30d": number;
@@ -70,6 +71,8 @@ export type ViewerStateResponse = {
     wallet_pubkey: string | null;
     devnet: boolean | null;
     client_version: string | null;
+    net_pnl_lamports?: number | null;
+    net_pnl_updated_at?: string | null;
     performance?: PerformanceMetrics | null;
     performance_updated_at?: string | null;
     recent_trades?: RecentTrade[] | null;
