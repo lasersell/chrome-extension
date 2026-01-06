@@ -16,7 +16,10 @@
     "service_worker": "background.js"
   },
   "permissions": ["sidePanel", "storage"],
-  "host_permissions": ["https://telemetry.lasersell.app/*"],
+  "host_permissions": [
+    "https://telemetry.lasersell.app/*",
+    "https://images.lasersell.app/*"
+  ],
   "side_panel": {
     "default_path": "sidepanel.html"
   },
@@ -27,6 +30,6 @@
     "128": "assets/icon128.png"
   },
   "content_security_policy": {
-    "extension_pages": "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; connect-src https://telemetry.lasersell.app; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+    "extension_pages": "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; connect-src https://telemetry.lasersell.app; img-src 'self' https://images.lasersell.app; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
   }
 }

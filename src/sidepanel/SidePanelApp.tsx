@@ -99,8 +99,12 @@ function formatMs(value: number | null | undefined) {
   return `${Math.round(value)} ms`;
 }
 
-function isHttpsUrl(value: string | null | undefined) {
-  return typeof value === "string" && value.startsWith("https://");
+const IMAGES_BASE = "https://images.lasersell.app";
+
+function coinImageUrl(mint: string, variant = "64x64") {
+  return `${IMAGES_BASE}/coin-image/${encodeURIComponent(
+    mint
+  )}?variant=${encodeURIComponent(variant)}`;
 }
 
 function maxIsoTimestamp(
@@ -785,9 +789,7 @@ export function SidePanelApp() {
                 </div>
               ) : (
                 sessions.map((session) => {
-                  const sessionImageUrl = isHttpsUrl(session.image_url)
-                    ? session.image_url
-                    : null;
+                  const sessionImageUrl = coinImageUrl(session.mint);
                   const costSol =
                     session.cost_basis_lamports !== null &&
                     session.cost_basis_lamports !== undefined
@@ -807,15 +809,13 @@ export function SidePanelApp() {
                     >
                       <div className="flex items-center gap-3">
                         <div className="h-4 w-4 shrink-0 overflow-hidden rounded-sm border border-border/60 bg-muted/40">
-                          {sessionImageUrl ? (
-                            <img
-                              src={sessionImageUrl}
-                              alt=""
-                              className="h-full w-full object-cover"
-                              loading="lazy"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : null}
+                          <img
+                            src={sessionImageUrl}
+                            alt=""
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                          />
                         </div>
                         <div className="flex flex-col gap-1">
                           <div className="text-sm font-semibold text-foreground">
@@ -869,9 +869,7 @@ export function SidePanelApp() {
                 </div>
               ) : (
                 recentTrades.map((trade) => {
-                  const tradeImageUrl = isHttpsUrl(trade.image_url)
-                    ? trade.image_url
-                    : null;
+                  const tradeImageUrl = coinImageUrl(trade.mint);
                   const label =
                     trade.symbol && trade.symbol.trim().length > 0
                       ? trade.symbol
@@ -909,15 +907,13 @@ export function SidePanelApp() {
                     >
                       <div className="flex items-center gap-3">
                         <div className="h-4 w-4 shrink-0 overflow-hidden rounded-sm border border-border/60 bg-muted/40">
-                          {tradeImageUrl ? (
-                            <img
-                              src={tradeImageUrl}
-                              alt=""
-                              className="h-full w-full object-cover"
-                              loading="lazy"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : null}
+                          <img
+                            src={tradeImageUrl}
+                            alt=""
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                          />
                         </div>
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-2">

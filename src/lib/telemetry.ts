@@ -16,7 +16,6 @@ export type TelemetrySession = {
   mint: string;
   symbol: string;
   name?: string | null;
-  image_url?: string | null;
   status: string;
   pnl_lamports: number;
   cost_basis_lamports?: number | null;
@@ -55,7 +54,6 @@ export type RecentTrade = {
   mint: string;
   name?: string | null;
   symbol?: string | null;
-  image_url?: string | null;
   profit_lamports: number | null;
   hold_seconds: number | null;
   sell_signature: string;
