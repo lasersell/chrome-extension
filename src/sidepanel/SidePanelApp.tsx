@@ -541,7 +541,7 @@ export function SidePanelApp() {
             }}
             className={cn(
               buttonVariants({ variant: "outline", size: "sm" }),
-              "appearance-none pr-8"
+              "appearance-none"
             )}
             aria-label="Preferred currency"
           >
