@@ -1,4 +1,52 @@
 const API_BASE = "https://telemetry.lasersell.app";
+const DEFAULT_REQUEST_TIMEOUT_MS = 8_000;
+const STREAM_TIMEOUT_BUFFER_MS = 2_000;
+
+function parseRetryAfterMs(headers: Headers): number | null {
+  const value = headers.get("retry-after");
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const seconds = Number.parseInt(trimmed, 10);
+  if (Number.isFinite(seconds)) {
+    return Math.max(0, seconds) * 1000;
+  }
+  const dateMs = Date.parse(trimmed);
+  if (!Number.isNaN(dateMs)) {
+    return Math.max(0, dateMs - Date.now());
+  }
+  return null;
+}
+
+function isTransientStatus(status: number) {
+  return status === 429 || status >= 500;
+}
+
+function isAbortError(error: unknown) {
+  if (error instanceof DOMException) {
+    return error.name === "AbortError";
+  }
+  return error instanceof Error && error.name === "AbortError";
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
 
 export type PairResponse =
   | {
@@ -96,23 +144,40 @@ export type SolFiatPriceResponse = {
 export class ApiError extends Error {
   status: number;
   body: unknown;
+  retryAfterMs?: number;
+  isTransient: boolean;
 
-  constructor(status: number, message: string, body: unknown) {
+  constructor(
+    status: number,
+    message: string,
+    body: unknown,
+    opts?: { retryAfterMs?: number; isTransient?: boolean }
+  ) {
     super(message);
     this.status = status;
     this.body = body;
+    this.retryAfterMs = opts?.retryAfterMs;
+    this.isTransient = opts?.isTransient ?? false;
   }
+}
+
+export function isTransientApiError(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.isTransient;
 }
 
 export async function pair(pairingCode: string): Promise<PairResponse> {
   try {
-    const response = await fetch(`${API_BASE}/api/viewer/pair`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json"
+    const response = await fetchWithTimeout(
+      `${API_BASE}/api/viewer/pair`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ pairing_code: pairingCode.trim() })
       },
-      body: JSON.stringify({ pairing_code: pairingCode.trim() })
-    });
+      DEFAULT_REQUEST_TIMEOUT_MS
+    );
     const body = (await response.json().catch(() => null)) as PairResponse | null;
     if (!response.ok || !body || !body.ok) {
       return {
@@ -130,21 +195,32 @@ export async function fetchViewerState(
   agentId: string,
   token: string
 ): Promise<ViewerStateResponse> {
-  const response = await fetch(
-    `${API_BASE}/api/viewer/state?agent_id=${encodeURIComponent(agentId)}`,
-    {
-      headers: {
-        authorization: `Bearer ${token}`
-      }
-    }
-  );
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(
+      `${API_BASE}/api/viewer/state?agent_id=${encodeURIComponent(agentId)}`,
+      {
+        headers: {
+          authorization: `Bearer ${token}`
+        }
+      },
+      DEFAULT_REQUEST_TIMEOUT_MS
+    );
+  } catch (error) {
+    throw new ApiError(0, isAbortError(error) ? "timeout" : "network_error", null, {
+      isTransient: true
+    });
+  }
   const body = (await response.json().catch(() => null)) as
     | ViewerStateResponse
     | { ok: false; error: string }
     | null;
   if (!response.ok || !body || ("ok" in body && !body.ok)) {
     const errorMessage = body && "error" in body ? body.error : "request_failed";
-    throw new ApiError(response.status, errorMessage, body);
+    throw new ApiError(response.status, errorMessage, body, {
+      retryAfterMs: parseRetryAfterMs(response.headers),
+      isTransient: isTransientStatus(response.status)
+    });
   }
   return body as ViewerStateResponse;
 }
@@ -162,11 +238,25 @@ export async function fetchViewerStateStream(
   if (timeoutMs) {
     params.set("timeout_ms", String(timeoutMs));
   }
-  const response = await fetch(`${API_BASE}/api/viewer/state/stream?${params.toString()}`, {
-    headers: {
-      authorization: `Bearer ${token}`
-    }
-  });
+  const requestTimeoutMs = timeoutMs
+    ? timeoutMs + STREAM_TIMEOUT_BUFFER_MS
+    : DEFAULT_REQUEST_TIMEOUT_MS;
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(
+      `${API_BASE}/api/viewer/state/stream?${params.toString()}`,
+      {
+        headers: {
+          authorization: `Bearer ${token}`
+        }
+      },
+      requestTimeoutMs
+    );
+  } catch (error) {
+    throw new ApiError(0, isAbortError(error) ? "timeout" : "network_error", null, {
+      isTransient: true
+    });
+  }
   if (response.status === 204) {
     return null;
   }
@@ -176,20 +266,37 @@ export async function fetchViewerStateStream(
     | null;
   if (!response.ok || !body || ("ok" in body && !body.ok)) {
     const errorMessage = body && "error" in body ? body.error : "request_failed";
-    throw new ApiError(response.status, errorMessage, body);
+    throw new ApiError(response.status, errorMessage, body, {
+      retryAfterMs: parseRetryAfterMs(response.headers),
+      isTransient: isTransientStatus(response.status)
+    });
   }
   return body as ViewerStateResponse;
 }
 
 export async function fetchSolUsdPrice(): Promise<SolPriceResponse> {
-  const response = await fetch(`${API_BASE}/api/prices/sol-usd`);
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(
+      `${API_BASE}/api/prices/sol-usd`,
+      {},
+      DEFAULT_REQUEST_TIMEOUT_MS
+    );
+  } catch (error) {
+    throw new ApiError(0, isAbortError(error) ? "timeout" : "network_error", null, {
+      isTransient: true
+    });
+  }
   const body = (await response.json().catch(() => null)) as
     | SolPriceResponse
     | { ok: false; error: string }
     | null;
   if (!response.ok || !body || ("ok" in body && !body.ok)) {
     const errorMessage = body && "error" in body ? body.error : "request_failed";
-    throw new ApiError(response.status, errorMessage, body);
+    throw new ApiError(response.status, errorMessage, body, {
+      retryAfterMs: parseRetryAfterMs(response.headers),
+      isTransient: isTransientStatus(response.status)
+    });
   }
   return body as SolPriceResponse;
 }
@@ -197,16 +304,28 @@ export async function fetchSolUsdPrice(): Promise<SolPriceResponse> {
 export async function fetchSolFiatPrice(
   currency: string
 ): Promise<SolFiatPriceResponse> {
-  const response = await fetch(
-    `${API_BASE}/api/prices/sol/${currency.toLowerCase()}`
-  );
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(
+      `${API_BASE}/api/prices/sol/${currency.toLowerCase()}`,
+      {},
+      DEFAULT_REQUEST_TIMEOUT_MS
+    );
+  } catch (error) {
+    throw new ApiError(0, isAbortError(error) ? "timeout" : "network_error", null, {
+      isTransient: true
+    });
+  }
   const body = (await response.json().catch(() => null)) as
     | SolFiatPriceResponse
     | { ok: false; error: string }
     | null;
   if (!response.ok || !body || ("ok" in body && !body.ok)) {
     const errorMessage = body && "error" in body ? body.error : "request_failed";
-    throw new ApiError(response.status, errorMessage, body);
+    throw new ApiError(response.status, errorMessage, body, {
+      retryAfterMs: parseRetryAfterMs(response.headers),
+      isTransient: isTransientStatus(response.status)
+    });
   }
   return body as SolFiatPriceResponse;
 }

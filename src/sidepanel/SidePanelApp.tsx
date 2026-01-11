@@ -32,6 +32,7 @@ import {
   disconnectViewer,
   fetchSolFiatPrice,
   fetchViewerStateStream,
+  isTransientApiError,
   type TelemetrySession,
   type ViewerStateResponse
 } from "../lib/telemetry";
@@ -134,6 +135,14 @@ const currencyOptions = [
   "CNY"
 ] as const;
 const perfWindowOptions = ["1h", "1d", "7d", "30d", "all"] as const;
+const PRICE_RETRY_BASE_MS = 500;
+const PRICE_RETRY_MAX = 3;
+const PRICE_RETRY_JITTER_MS = 200;
+
+function retryDelayWithJitter(baseMs: number) {
+  const jitter = Math.floor(Math.random() * (PRICE_RETRY_JITTER_MS + 1));
+  return baseMs + jitter;
+}
 
 export function SidePanelApp() {
   const [auth, setAuth] = useState<AuthState | null>(null);
@@ -238,7 +247,15 @@ export function SidePanelApp() {
     queryFn: () => fetchSolFiatPrice(preferredCurrency),
     enabled: !!auth,
     refetchInterval: 60_000,
-    retry: 1
+    retry: (failureCount, error) =>
+      isTransientApiError(error) && failureCount <= PRICE_RETRY_MAX,
+    retryDelay: (failureCount, error) => {
+      if (isTransientApiError(error) && error.retryAfterMs) {
+        return error.retryAfterMs;
+      }
+      const backoff = PRICE_RETRY_BASE_MS * 2 ** Math.max(0, failureCount - 1);
+      return retryDelayWithJitter(Math.min(backoff, 4_000));
+    }
   });
 
   useEffect(() => {
@@ -292,15 +309,33 @@ export function SidePanelApp() {
             handleExpired();
             return;
           }
-          setViewerError(
-            err instanceof Error ? err : new Error("Unable to load telemetry.")
-          );
+          const transient = isTransientApiError(err);
+          const retryAfterMs =
+            err instanceof ApiError ? err.retryAfterMs ?? null : null;
+          const delayMs = retryAfterMs ?? backoffMs;
+          if (transient) {
+            const delayLabel =
+              delayMs > 0
+                ? ` Retrying in ${Math.ceil(delayMs / 1000)}s...`
+                : " Retrying...";
+            setViewerError(
+              new Error(`Telemetry temporarily unavailable.${delayLabel}`)
+            );
+          } else {
+            setViewerError(
+              err instanceof Error ? err : new Error("Unable to load telemetry.")
+            );
+          }
           if (initial) {
             setViewerLoading(false);
             initial = false;
           }
-          await new Promise((resolve) => setTimeout(resolve, backoffMs));
-          backoffMs = Math.min(backoffMs * 2, 8000);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          if (retryAfterMs !== null) {
+            backoffMs = 1000;
+          } else {
+            backoffMs = Math.min(backoffMs * 2, 8000);
+          }
         }
       }
     };
