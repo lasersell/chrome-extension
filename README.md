@@ -18,3 +18,7 @@ For Chrome Web Store uploads, zip the `dist/` output (not the repo root).
 2. Click the toolbar icon to open the pairing popup, enter the code, and click **Connect**.
 3. After pairing, clicking the icon opens the Side Panel dashboard.
 4. Use **Disconnect** to clear stored tokens and re-pair.
+
+## Legal
+
+Copyright Xen LLC. All rights reserved.
