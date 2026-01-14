@@ -1,33 +1,31 @@
 <svg width="500" height="500" viewBox="0 0 500 500" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bg-gradient" x1="250" y1="0" x2="250" y2="500" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#1E293B" />
-      <stop offset="1" stop-color="#0F172A" />
+      <stop offset="0" stop-color="#18181b" /> 
+      <stop offset="1" stop-color="#050505" /> 
     </linearGradient>
 
     <linearGradient id="positivePnLGradient" x1="130" y1="425" x2="370" y2="75" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#10B981" />
-      <stop offset="0.6" stop-color="#6EE7B7" />
-      <stop offset="1" stop-color="#ECFDF5" />
+      <stop offset="0" stop-color="#07C983" /> 
+      <stop offset="0.5" stop-color="#34d399" /> 
+      <stop offset="1" stop-color="#ffffff" /> 
     </linearGradient>
 
     <filter id="soft-shadow-centered" x="-50%" y="-50%" width="200%" height="200%">
-      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.3" />
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#07C983" flood-opacity="0.25"/>
     </filter>
   </defs>
 
-  <rect width="500" height="500" rx="110" fill="url(#bg-gradient)" />
+  <rect width="500" height="500" rx="110" fill="url(#bg-gradient)"/>
 
   <g filter="url(#soft-shadow-centered)">
-    <path
-      d="M130 425 L190 275 L230 325 L370 75"
-      stroke="url(#positivePnLGradient)"
-      stroke-width="16"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      fill="none"
-    />
+      <path d="M130 425 L190 275 L230 325 L370 75" 
+            stroke="url(#positivePnLGradient)" 
+            stroke-width="24" 
+            stroke-linecap="round" 
+            stroke-linejoin="round"
+            fill="none"/>
 
-    <circle cx="370" cy="75" r="14" fill="#ECFDF5" />
+      <circle cx="370" cy="75" r="16" fill="#ffffff"/>
   </g>
 </svg>
