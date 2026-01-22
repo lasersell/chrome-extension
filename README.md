@@ -1,6 +1,11 @@
 # lasersell-extension
 
+[![Chrome Web Store Version](https://img.shields.io/chrome-web-store/v/llablajedejfnhljgakfahpiibmbkpbl?logo=google-chrome&logoColor=white)](https://chromewebstore.google.com/detail/lasersell/llablajedejfnhljgakfahpiibmbkpbl)
+[![Chrome Web Store Users](https://img.shields.io/chrome-web-store/users/llablajedejfnhljgakfahpiibmbkpbl?logo=google-chrome&logoColor=white)](https://chromewebstore.google.com/detail/lasersell/llablajedejfnhljgakfahpiibmbkpbl)
+
 Chrome Extension for LaserSell.
+
+[![Install from Chrome Web Store](https://img.shields.io/badge/Install_from-Chrome_Web_Store-4285F4?style=for-the-badge&logo=google-chrome&logoColor=white)](https://chromewebstore.google.com/detail/lasersell/llablajedejfnhljgakfahpiibmbkpbl)
 
 ## Build
 
